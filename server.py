@@ -16,14 +16,14 @@ def agents_portrayal(agent):
         portrayal["Color"] = "red"
         portrayal["Shape"] = "circle"
         portrayal["Filled"] = "true"
-        portrayal["Layer"] = 0
+        portrayal["Layer"] = 1
         portrayal["r"] = 1
 
     elif type(agent) is Guide:
         portrayal["Color"] = "blue"
         portrayal["Shape"] = "circle"
         portrayal["Filled"] = "true"
-        portrayal["Layer"] = 0
+        portrayal["Layer"] = 1
         portrayal["r"] = 1
 
     elif type(agent) is Exit:
@@ -45,23 +45,28 @@ def agents_portrayal(agent):
     return portrayal
 
 
-canvas_element = CanvasGrid(agents_portrayal, 100, 100, 800, 800)
-chart_element = ChartModule(
-    [{"Label": "Evacuees", "Color": "#AA0000"}, {"Label": "Guides", "Color": "#AA0000"}]
-)
+HEIGHT = WIDTH = 100
+
+canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 800, 800)
+chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 
 model_params = {
-    "map_type": Slider("Map type (Not Implemented)", 1, 1, 3),
-    "evacuees_num": Slider("Number of Evacuees (Not Implemented)", 50, 1, 100),
-    "guides_num": Slider("Number of Guides (Not Implemented)", 2, 1, 8),
-    "guides_mode": Slider("Guides action mode (Not Implemented)", 1, 1, 3),
-    "agents_clipping": Checkbox("Agents are clipping (Not Implemented)", True),
-    "evacuees_random_position": Checkbox("Evacuees start from random position (Not Implemented)", True),
-    "guides_random_position": Checkbox("Guides start from random position (Not Implemented)", True),
+    "width": WIDTH,
+    "height": HEIGHT,
+    "map_type": Choice("Map type", "cross", ["default", "cross", "boxes"]),
+    "guides_mode": Choice("Guides action mode", "A", ["A", "B"],
+                          description="Guides has different action scheme."),
+    "evacuees_num": Slider("Number of Evacuees ", 100, 1, 1000),
+    "guides_num": Slider("Number of Guides", 2, 1, 4),
+    "ghost_agents": Checkbox("Ghost agents", False,
+                             description="Multiple agents can stand at one position."),
+    "evacuees_share_information": Checkbox("Evacuees share exit area information", False),
+    "guides_random_position": Checkbox("Guides start from random position", False,
+                                       description="If set to false, guides starts from fixed positions (same as location of points)."),
+
 }
 
-server = ModularServer(
-    EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation", model_params
-)
+server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
+                       model_params)
 server.port = 8521
 server.launch()
