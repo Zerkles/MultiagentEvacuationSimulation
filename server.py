@@ -2,7 +2,7 @@ from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.modules import CanvasGrid, ChartModule
 from mesa.visualization.UserParam import Slider, Checkbox, Choice
 
-from agents import Evacuee, Guide, Obstacle, Exit
+from agents import Evacuee, Guide, Obstacle, Exit, MapInfo
 from model import EvacuationModel
 
 
@@ -10,7 +10,7 @@ def agents_portrayal(agent):
     if agent is None:
         return
 
-    portrayal = {}
+    portrayal = dict()
 
     if type(agent) is Evacuee:
         portrayal["Color"] = "red"
@@ -41,22 +41,33 @@ def agents_portrayal(agent):
         portrayal["Layer"] = 0
         portrayal["w"] = 1
         portrayal["h"] = 1
+    elif type(agent) is MapInfo:
+        portrayal["Color"] = agent.color
+        portrayal["Shape"] = "rect"
+        portrayal["Filled"] = "true"
+        portrayal["w"] = 1
+        portrayal["h"] = 1
+        portrayal["Layer"] = 2
+        portrayal["text"] = str(agent.value)
+        portrayal["text_color"] = "black"
+
 
     return portrayal
 
 
 HEIGHT = WIDTH = 100
 
-canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 800, 800)
+# canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 900, 500)
+canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1500, 1500)
 chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 
 model_params = {
     "width": WIDTH,
     "height": HEIGHT,
     "map_type": Choice("Map type", "cross", ["default", "cross", "boxes"]),
-    "guides_mode": Choice("Guides action mode", "A", ["A", "B"],
+    "guides_mode": Choice("Guides action mode", "B", ["A", "B"],
                           description="Guides has different action scheme."),
-    "evacuees_num": Slider("Number of Evacuees ", 100, 1, 1000),
+    "evacuees_num": Slider("Number of Evacuees ", 500, 1, 2000),
     "guides_num": Slider("Number of Guides", 2, 1, 4),
     "ghost_agents": Checkbox("Ghost agents", False,
                              description="Multiple agents can stand at one position."),
@@ -68,5 +79,6 @@ model_params = {
 
 server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
                        model_params)
+
 server.port = 8521
 server.launch()
