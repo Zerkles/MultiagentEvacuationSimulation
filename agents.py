@@ -24,9 +24,6 @@ class WalkingAgent(Agent):
         if not self.model.ghost_agents:
             legal_positions -= (self.model.evacuees_positions.union(self.model.guides_positions))
 
-
-        # if not legal_positions:
-        #     legal_positions.add(self.pos)
         legal_positions.add(self.pos)
 
         return legal_positions
@@ -71,7 +68,6 @@ class WalkingAgent(Agent):
 class Evacuee(WalkingAgent):
     def __init__(self, uid, pos, model, positions_set):
         super().__init__(uid, pos, model, positions_set)
-        # self.assigned_exit_area_id = random.choice([0, 1])
         self.assigned_exit_area_id = 1
 
     def step(self):
@@ -88,7 +84,7 @@ class Evacuee(WalkingAgent):
         self.move(best_position)
 
     def get_distance_for_positions(self, legal_positions):
-        map = self.model.exit_areas_maps[self.assigned_exit_area_id]
+        map = self.model.exits_maps[self.assigned_exit_area_id]
         legal_positions_distances = dict()
 
         for pos in legal_positions:
@@ -112,6 +108,8 @@ class Guide(WalkingAgent):
             self.closest_exit_id = 1
         elif mode == "B":
             self.step = self.step_mode_b
+        elif mode == "none":
+            pass
 
     def step_mode_a(self):
         # Escape broadcast
@@ -125,16 +123,27 @@ class Guide(WalkingAgent):
 
         # Moving
         legal_positions = self.get_legal_positions()
-        print(legal_positions)
-        legal_positions_goals = self.calculate_delta_goal(legal_positions)
+        legal_positions_goals = self.delta_function_a(legal_positions)
 
         best_position = min(legal_positions_goals, key=legal_positions_goals.get)
         self.move(best_position)
 
     def step_mode_b(self):
-        self.get_legal_actions()
+        # Escape broadcast
+        self.closest_exit_id = self.get_closest_exit()
+        self.broadcast_exit_id(self.closest_exit_id)
 
-    def calculate_delta_goal(self, legal_positions):
+        # Theta timer
+        if self.direction_change_timer > 0:
+            self.direction_change_timer -= 1
+            return
+
+        # Moving
+        legal_positions = self.get_legal_positions()
+        legal_positions_goals = self.delta_function_a(legal_positions)
+
+
+    def delta_function_a(self, legal_positions):
         guides_positions = self.model.guides_positions.copy()
         guides_positions.remove(self.pos)
 
@@ -156,13 +165,21 @@ class Guide(WalkingAgent):
 
         return legal_positions_with_goal
 
+    def delta_function_b(self, legal_positions):
+        guides_positions = self.model.guides_positions.copy()
+        guides_positions.remove(self.pos)
+
+        pass
+
+
+
     def get_closest_exit(self):
         x, y = self.pos
 
-        closest_exit, map = self.model.exit_areas_maps.keys()[1]
+        closest_exit, map = self.model.exits_maps.keys()[1]
         min_dst = self.model.diagonal + 1
 
-        for exit_area_id, map in self.model.exit_areas_maps.items()[1:]:
+        for exit_area_id, map in self.model.exits_maps.items()[1:]:
             dst = map[x][y]
 
             if dst < min_dst:
@@ -203,12 +220,10 @@ class Sensor(Agent):
     def step(self):
         self.evacuees_in_area = len(self.sensing_positions.intersection(self.model.evacuees_positions))
 
+
 class MapInfo(Agent):
-    def __init__(self, uid, pos, model, value,color):
+    def __init__(self, uid, pos, model, value, color):
         super().__init__(uid, model)
         self.pos = pos
         self.value = value
-        self.color=color
-
-    def step(self):
-        pass
+        self.color = color

@@ -65,7 +65,12 @@ class RandomActivationByBreed(RandomActivation):
         """
         agent_keys = list(self.agents_by_breed[breed].keys())
         self.model.random.shuffle(agent_keys)
+
         for agent_key in agent_keys:
+            self.agents_by_breed[breed][agent_key].step()
+
+    def step_breed_ordered(self, breed, order):
+        for agent_key in order:
             self.agents_by_breed[breed][agent_key].step()
 
     def get_breed_count(self, breed_class):

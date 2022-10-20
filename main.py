@@ -51,7 +51,6 @@ def agents_portrayal(agent):
         portrayal["text"] = str(agent.value)
         portrayal["text_color"] = "black"
 
-
     return portrayal
 
 
@@ -64,17 +63,13 @@ chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 model_params = {
     "width": WIDTH,
     "height": HEIGHT,
-    "map_type": Choice("Map type", "cross", ["default", "cross", "boxes"]),
-    "guides_mode": Choice("Guides action mode", "B", ["A", "B"],
-                          description="Guides has different action scheme."),
+    "map_type": Choice("Map type", 'random_rectangles', ["default", "cross", "boxes", 'random_rectangles']),
+    "guides_mode": Choice("Guides action mode", "none", ["A", "B", "none"]),
     "evacuees_num": Slider("Number of Evacuees ", 500, 1, 2000),
     "guides_num": Slider("Number of Guides", 2, 1, 4),
-    "ghost_agents": Checkbox("Ghost agents", False,
-                             description="Multiple agents can stand at one position."),
+    "ghost_agents": Checkbox("Ghost agents", False),
     "evacuees_share_information": Checkbox("Evacuees share exit area information", False),
-    "guides_random_position": Checkbox("Guides start from random position", False,
-                                       description="If set to false, guides starts from fixed positions (same as location of points)."),
-
+    "guides_random_position": Checkbox("Guides start from random position", False),
 }
 
 server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
@@ -82,3 +77,4 @@ server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multia
 
 server.port = 8521
 server.launch()
+#TODO: Change default FPS to 0 (Max possible)

@@ -3,7 +3,7 @@ import math
 import sys
 from collections import Counter
 from math import sqrt
-from statistics import mean
+from statistics import mean, median
 
 import numpy as np
 from mesa import Model
@@ -48,105 +48,33 @@ class EvacuationModel(Model):
         )
 
         self.moore = True
-        self.diagonal = sqrt(self.width ** 2 + self.height ** 2)
-        available_positions = self.area_positions_from_points((0, 0), (99, 99))
-        areas_centers = [(24, 74), (74, 24), (24, 24), (74, 74)]
+        self.max_route_len = (self.width * self.height) + 1
 
-        # OBSTACLES
-        obstacles_points = []
-        if self.map_type == 'cross':
-            obstacles_points = [((49, 9), (50, 39)), ((49, 89), (50, 59)), ((9, 49), (39, 50)), ((59, 49), (89, 50))]
+        fixed_positions = {'x_1_4': int(self.width / 4), 'x_1_2': int(self.width / 2),
+                           'x_3_4': int(self.width - (self.width / 4)),
+                           'y_1_4': int(self.height / 4), 'y_1_2': int(self.height / 2),
+                           'y_3_4': int(self.height - (self.height / 4))}
 
-        elif self.map_type == 'boxes':
-            thk = 10  # thickness
-            for x, y in areas_centers:
-                obstacles_points.append(((x + thk, y + thk), (x - thk, y - thk)))
+        areas_centers = [(fixed_positions['x_1_4'], fixed_positions['y_3_4']),
+                         (fixed_positions['x_3_4'], fixed_positions['y_1_4']),
+                         (fixed_positions['x_1_4'], fixed_positions['y_1_4']),
+                         (fixed_positions['x_3_4'], fixed_positions['y_3_4'])]
 
-        obstacles_dict = dict()
-        self.obstacles_positions = set()
-        for i, (a, b) in enumerate(obstacles_points):
-            area_positions = self.area_positions_from_points(a, b)
-            self.obstacles_positions.update(area_positions)
-            obstacles_dict[i] = self.area_positions_from_points(a, b)
+        available_positions = self.area_positions_from_points((0, 0), (self.width - 1, self.height - 1))
 
-        for pos in self.obstacles_positions:
-            available_positions.remove(pos)
+        exits_areas_corners = [((0, 0), (25, 0)), ((75, 99), (99, 99))]
+        self.exits_positions = self.init_exits(available_positions, exits_areas_corners)
 
-            obstacle = Obstacle(uid=self.next_id(), pos=pos, model=self)
-            self.grid.place_agent(obstacle, pos)
+        self.obstacles_positions = self.init_obstacles(available_positions, areas_centers, fixed_positions)
 
-        # EXITS
-        exits_points = [((0, 0), (25, 0)), ((75, 99), (99, 99))]
+        self.exits_maps, unreachable_positions = self.init_exits_maps(self.exits_positions, show_map=True)
 
-        self.exit_areas_positions = dict()
-        for area_id, exit_obj in enumerate(exits_points):
-            area = self.area_positions_from_points(exit_obj[0], exit_obj[1])
-            self.exit_areas_positions.update({area_id: area})
+        # [available_positions.remove(pos) for pos in unreachable_positions]
+        available_positions = list(set(available_positions) - unreachable_positions)
 
-            for pos in area:
-                exit_obj = Exit(uid=self.next_id(), pos=pos, model=self, exit_area_id=area_id)
-                self.grid.place_agent(exit_obj, pos)
-                self.schedule.add(exit_obj)
-
-                available_positions.remove(pos)
-
-        self.exit_areas_maps = dict()
-        for k, v in self.exit_areas_positions.items():
-            start_position = (int(mean([x[0] for x in v])), int(mean(([x[1] for x in v]))))
-
-            # area_map = self.generate_round_map(start_position, v)
-            area_map = self.generate_square_map(start_position, v)
-
-            # area_map = self.generate_obstacles_border(area_map, start_position, obstacles_points)
-            # area_map = self.generate_raytracing_map(start_position, v)
-
-            self.exit_areas_maps[k] = area_map
-
-        # Map test
-        test_map = list(self.exit_areas_maps.values())[1]
-        for x in range(100):
-            for y in range(100):
-                map_obj = MapInfo(uid=self.next_id(), pos=(x, y), model=self, value=test_map[x][y], color="transparent")
-                self.grid.place_agent(map_obj, (x, y))
-
-        # Place SENSORS
-        self.sensors = []
-        for i, pos in enumerate(areas_centers):
-            sensing_area = self.area_positions_from_points((pos[0] - 25, pos[1] - 25), (pos[0] + 25, pos[1] + 25))
-            sensing_area = set(available_positions).intersection(set(sensing_area))
-
-            sensor = Sensor(uid=self.next_id(), pos=pos, model=self, area_id=i, sensing_positions=sensing_area)
-            self.grid.place_agent(sensor, pos)
-            self.schedule.add(sensor)
-
-            self.sensors.append(sensor)
-
-        # GUIDES
-        self.guides_positions = set()
-        for i in range(self.guides_num):
-            if self.guides_random_position or self.map_type == 'boxes':
-                pos = random.choice(available_positions)
-            else:
-                pos = areas_centers[i]
-
-            self.guides_positions.add(pos)
-            available_positions.remove(pos)
-
-            guide = Guide(uid=self.next_id(), pos=pos, model=self, mode=self.guides_mode,
-                          positions_set=self.guides_positions)
-            self.grid.place_agent(guide, pos)
-            self.schedule.add(guide)
-
-        # EVACUEES
-        self.evacuees_positions = set()
-        for _ in range(self.evacuees_num):
-            pos = random.choice(available_positions)
-            self.evacuees_positions.add(pos)
-            available_positions.remove(pos)
-
-            evacuee = Evacuee(uid=self.next_id(), pos=pos, model=self, positions_set=self.evacuees_positions)
-            self.grid.place_agent(evacuee, pos)
-            self.schedule.add(evacuee)
+        self.sensors = self.init_sensors(available_positions, areas_centers, fixed_positions)
+        self.guides_positions = self.init_guides(available_positions, areas_centers)
+        self.evacuees_positions = self.init_evacuees(available_positions)
 
         self.running = True
         self.datacollector.collect(self)
@@ -168,21 +96,177 @@ class EvacuationModel(Model):
             print("Final number of Guides: ", self.schedule.get_breed_count(Guide))
 
     def step(self):
-        for breed in [Exit, Sensor, Guide, Evacuee]:
+        for breed in [Exit, Sensor, Guide]:
             self.schedule.step_breed(breed)
+
+        dct = {k: self.exits_maps[v.assigned_exit_area_id][v.pos[0]][v.pos[1]] for k, v in
+               self.schedule.agents_by_breed[Evacuee].items()}
+        order = sorted(dct, key=dct.get)
+        self.schedule.step_breed_ordered(Evacuee, order)
 
         # collect data
         self.datacollector.collect(self)
-        if self.verbose:
-            print(
-                [
-                    self.schedule.time,
-                    self.schedule.get_breed_count(Evacuee),
-                ]
-            )
 
         if self.schedule.get_breed_count(Evacuee) == 0:
             self.running = False
+
+        if self.verbose:
+            print([self.schedule.time, self.schedule.get_breed_count(Evacuee)])
+
+    def init_obstacles(self, available_positions, areas_centers, fixed_positions):
+        obstacles_corners = []
+        obstacles_positions = set()
+
+        if self.map_type == 'default':
+            return set()
+        elif self.map_type == 'cross':
+            gap_thck = 10  # gap thickness
+            obstacles_corners = [((fixed_positions['x_1_2'], 0 + gap_thck),
+                                  (fixed_positions['x_1_2'], fixed_positions['y_1_2'] - gap_thck)),
+
+                                 ((fixed_positions['x_1_2'], self.height - 1 - gap_thck),
+                                  (fixed_positions['x_1_2'], fixed_positions['y_1_2'] + gap_thck)),
+
+                                 ((0 + gap_thck, fixed_positions['y_1_2']),
+                                  (fixed_positions['x_1_2'] - gap_thck, fixed_positions['y_1_2'])),
+
+                                 ((fixed_positions['x_1_2'] + gap_thck, fixed_positions['y_1_2']),
+                                  (self.height - gap_thck, fixed_positions['y_1_2']))]
+
+        elif self.map_type == 'boxes':
+            thck = 15  # thickness
+            for x, y in areas_centers:
+                obstacles_corners.append(((x + thck, y + thck), (x - thck, y - thck)))
+
+        elif self.map_type == 'random_rectangles':
+            obstacles_positions = set()
+            rectangles_num = 15
+            rectangle_max_size = range(1, 15)
+            erosion_proba = 0
+
+            for _ in range(rectangles_num):
+                center = random.choice(available_positions)
+
+                x_random = random.choice(rectangle_max_size)
+                max_x, min_x = center[0] + x_random, center[0] - x_random
+
+                y_random = random.choice(rectangle_max_size)
+                max_y, min_y = center[1] + y_random, center[1] - y_random
+
+                box_points = set(self.area_positions_from_points((min_x, min_y), (max_x, max_y)))
+                rectangle_points = set()
+                for x, y in box_points:
+                    if x == max_x or x == min_x or y == max_y or y == min_y:
+                        rectangle_points.add((x, y))
+
+                rectangle_points = rectangle_points.intersection(set(available_positions))
+
+                # print(random.choices([True, False], weights=[erosion_proba, 1 - erosion_proba], k=1))
+
+                for pos in list(rectangle_points):
+                    if random.choices([True, False], weights=[erosion_proba, 1 - erosion_proba], k=1)[0]:
+                        rectangle_points.remove(pos)
+
+                obstacles_positions.update(rectangle_points)
+
+        if self.map_type == 'cross' or self.map_type == 'boxes':
+            for i, (a, b) in enumerate(obstacles_corners):
+                area_positions = self.area_positions_from_points(a, b)
+                obstacles_positions.update(area_positions)
+
+        for pos in obstacles_positions:
+            available_positions.remove(pos)
+
+            obstacle = Obstacle(uid=self.next_id(), pos=pos, model=self)
+            self.grid.place_agent(obstacle, pos)
+
+        return obstacles_positions
+
+    def init_exits(self, available_positions, exits_areas_corners):
+        exits_positions = dict()
+        for area_id, exit_obj in enumerate(exits_areas_corners):
+            area = self.area_positions_from_points(exit_obj[0], exit_obj[1])
+            exits_positions.update({area_id: area})
+
+            for pos in area:
+                exit_obj = Exit(uid=self.next_id(), pos=pos, model=self, exit_area_id=area_id)
+                self.grid.place_agent(exit_obj, pos)
+                self.schedule.add(exit_obj)
+
+                available_positions.remove(pos)
+
+        return exits_positions
+
+    def init_exits_maps(self, exits_positions, show_map=False):
+        exits_maps = dict()
+        unreachable_positions = set()
+        for k, v in exits_positions.items():
+            start_position = (int(median([x[0] for x in v])), int(median(([x[1] for x in v]))))
+
+            area_map, unreachable_positions_part = self.generate_square_rounded_map(start_position, v)
+            exits_maps[k] = area_map
+            unreachable_positions.update(unreachable_positions_part)
+
+        # Map test
+        if show_map:
+            test_map = list(exits_maps.values())[1]
+            for x in range(100):
+                for y in range(100):
+                    map_obj = MapInfo(uid=self.next_id(), pos=(x, y), model=self,
+                                      value=test_map[x][y], color="transparent")
+                    self.grid.place_agent(map_obj, (x, y))
+
+        return exits_maps, unreachable_positions
+
+    def init_sensors(self, available_positions, areas_centers, fixed_positions):
+        sensors = set()
+        for i, pos in enumerate(areas_centers):
+            sensing_area = self.area_positions_from_points(
+                (pos[0] - fixed_positions['x_1_4'], pos[1] - fixed_positions['y_1_4']),
+                (pos[0] + fixed_positions['x_1_4'], pos[1] + fixed_positions['y_1_4']))
+            sensing_area = set(available_positions).intersection(set(sensing_area))
+
+            sensor = Sensor(uid=self.next_id(), pos=pos, model=self, area_id=i, sensing_positions=sensing_area)
+            self.grid.place_agent(sensor, pos)
+            self.schedule.add(sensor)
+
+            sensors.add(sensor)
+
+        return sensors
+
+    def init_guides(self, available_positions, areas_centers):
+        guides_positions = set()
+        for i in range(self.guides_num):
+            if self.guides_random_position or self.map_type == 'boxes' or self.map_type == 'random_rectangles':
+                pos = random.choice(available_positions)
+            else:
+                pos = areas_centers[i]
+
+            guides_positions.add(pos)
+            available_positions.remove(pos)
+
+            guide = Guide(uid=self.next_id(), pos=pos, model=self, mode=self.guides_mode,
+                          positions_set=guides_positions)
+            self.grid.place_agent(guide, pos)
+            self.schedule.add(guide)
+
+        return guides_positions
+
+    def init_evacuees(self, available_positions):
+        if self.evacuees_num > len(available_positions):
+            self.evacuees_num = len(available_positions)
+
+        evacuees_positions = set()
+        for _ in range(self.evacuees_num):
+            pos = random.choice(available_positions)
+            evacuees_positions.add(pos)
+            available_positions.remove(pos)
+
+            evacuee = Evacuee(uid=self.next_id(), pos=pos, model=self, positions_set=evacuees_positions)
+            self.grid.place_agent(evacuee, pos)
+            self.schedule.add(evacuee)
+
+        return evacuees_positions
 
     @staticmethod
     def area_positions_from_points(pos1, pos2):
@@ -194,13 +278,12 @@ class EvacuationModel(Model):
 
         return list(product(range(xs[0], xs[1] + 1), range(ys[0], ys[1] + 1)))
 
-    def generate_square_map(self, start_position, exit_positions):
+    def generate_square_map(self, start_position, exits_positions):
 
         area_map = np.empty((self.width, self.height), int)
         available_positions = set(self.area_positions_from_points((0, 0), (99, 99))) - self.obstacles_positions
 
         current_positions = {start_position}
-
         distance = 0
 
         while available_positions != set():
@@ -208,137 +291,66 @@ class EvacuationModel(Model):
                 area_map[x][y] = distance
 
             next_positions = set()
+
             for pos in current_positions:
-                next_positions.update(self.grid.get_neighborhood(pos, moore=False,include_center=True))
-                # self.grid.get_neighborhood()
+                next_positions.update(self.grid.get_neighborhood(pos, moore=True))
 
             available_positions -= current_positions
             current_positions = next_positions.intersection(available_positions)
 
             distance += 1
 
+        for x, y in exits_positions:
+            area_map[x][y] = 0
+
+        for x, y in self.obstacles_positions:
+            area_map[x][y] = int(self.max_route_len)
+
+        return area_map
+
+    def generate_square_rounded_map(self, start_position, exit_positions):
+        area_map = np.empty((self.width, self.height), int)
+        unmeasured_positions = set(
+            self.area_positions_from_points((0, 0), (self.width - 1, self.height - 1))) - self.obstacles_positions
+
+        current_positions = {start_position}
+        distance = 0
+
+        unreachable_positions = set()
+        av_pos_len = len(unmeasured_positions)
+
+        while unmeasured_positions != set():
+            for x, y in current_positions:
+                area_map[x][y] = distance
+
+            next_positions = set()
+
+            if distance % 2 == 0:
+                for pos in current_positions:
+                    next_positions.update(self.grid.get_neighborhood(pos, moore=True))
+            else:
+                for pos in current_positions:
+                    next_positions.update(self.grid.get_neighborhood(pos, moore=False))
+
+            unmeasured_positions -= current_positions
+            current_positions = next_positions.intersection(unmeasured_positions)
+
+            distance += 1
+
+            # anti-stuck, helps in situation when some positions are unreachable
+            if av_pos_len == len(unmeasured_positions):
+                unreachable_positions = unmeasured_positions
+                break
+            else:
+                av_pos_len = len(unmeasured_positions)
+
+        for x, y in unreachable_positions:
+            area_map[x][y] = int(self.max_route_len)
+
         for x, y in exit_positions:
             area_map[x][y] = 0
 
         for x, y in self.obstacles_positions:
-            area_map[x][y] = 99
+            area_map[x][y] = int(self.max_route_len)
 
-        return area_map
-
-    def generate_round_map(self, start_position, exit_positions):
-        area_map = np.empty((self.width, self.height), int)
-
-        for x in range(self.width):
-            for y in range(self.height):
-                area_map[x][y] = int(math.dist((x, y), start_position))
-
-        for x, y in exit_positions:
-            area_map[x][y] = 0
-
-        return area_map
-
-    def generate_raytracing_map(self, start_position, exit_positions):
-        area_map = np.full((self.width, self.height), -1)
-
-        area_map[start_position[0]][start_position[1]] = 0
-
-        for x in range(self.width):
-            for y in range(self.height):
-                area_map = self.shortest_path(area_map, (x, y), start_position)
-
-        # distances_corners = [math.dist(x, exit_pos) for x in positions]
-        # best_corner = obstacles_corners[distances_corners.index(min(distances_corners))]
-        #
-        # return self.shortest_path(map, start_pos, best_corner, obstacles_corners)
-
-        obstacles_corners = []
-
-        counts = dict()
-        for pos in self.obstacles_positions:
-            counts.update({pos: len(self.grid.get_neighbors(pos, self.moore))})
-
-        min_val = min(counts.values())
-
-        for k, v in list(counts.items()):
-            if counts[k] == min_val:
-                obstacles_corners.append(k)
-
-        for pos_cor in obstacles_corners:
-            x, y = pos_cor
-            values_in_neighborhood = dict()
-
-            for x_n, y_n in self.grid.get_neighborhood(pos_cor, self.moore):
-                values_in_neighborhood.update({pos_cor: area_map[x_n][y_n]})
-
-            if not all([val == -1 for val in values_in_neighborhood.values()]):
-                obstacles_corners.remove(pos_cor)
-            elif area_map[x][y] == -1:
-                _, val = max(values_in_neighborhood.items(), key=lambda item: item[1])
-                area_map[x][y] = val + 1
-
-        for x, y in obstacles_corners:
-            info = MapInfo(uid=self.next_id(), pos=(x, y), model=self, value=area_map[x][y], color="red")
-            self.grid.place_agent(info, (x, y))
-
-        for x, y in exit_positions:
-            area_map[x][y] = 0
-
-        return area_map
-
-    def generate_obstacles_border(self, area_map, area_start_position, obstacle_points):
-
-        for a, b in obstacle_points:
-            area_positions = set(self.area_positions_from_points(a, b))
-
-            border_positions = set()
-            for pos in area_positions:
-                border_positions.update(self.grid.get_neighborhood(pos, moore=self.moore))
-
-            border_positions -= area_positions
-
-            border_positions_with_distance = dict()
-            for pos in border_positions:
-                border_positions_with_distance.update({pos: math.dist(area_start_position, pos)})
-
-            border_positions_with_distance = dict(
-                sorted(border_positions_with_distance.items(), key=lambda item: item[1]))
-
-            min_value = min(border_positions_with_distance.values())
-
-            for enum, k in enumerate(border_positions_with_distance):
-                border_positions_with_distance[k] = min_value + 1
-
-            for (x, y), val in border_positions_with_distance.items():
-                area_map[x][y] = val
-
-        return area_map
-
-    def shortest_path(self, map, start_pos, exit_pos):
-        route = [start_pos]
-        x1, y1 = pos = start_pos
-
-        if start_pos in self.obstacles_positions:
-            return map
-
-        while map[x1][y1] == -1:
-            positions = self.grid.get_neighborhood(pos, moore=self.moore)
-            distances = [math.dist(x, exit_pos) for x in positions]
-            best_position = positions[distances.index(min(distances))]
-
-            if best_position in self.obstacles_positions:
-                return map
-
-            route.append(best_position)
-            x1, y1 = pos = best_position
-
-        x_last, y_last = route[-1]
-        distance = map[x_last][y_last]
-
-        if distance == -1:
-            return map
-
-        for x, y in reversed(route):
-            map[x][y] = distance
-            distance += 1
-
-        return map
+        return area_map, unreachable_positions
