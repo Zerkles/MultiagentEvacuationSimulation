@@ -17,26 +17,27 @@ from itertools import product
 
 
 class EvacuationModel(Model):
-    verbose = False  # Print-monitoring
+    verbose = False
 
     description = (
         "A model for simulating area evacuation. Consists of many evacuees and a few cooperating evacuation guides."
     )
 
     def __init__(self, width, height, guides_mode, map_type, evacuees_num, guides_num, ghost_agents,
-                 evacuees_share_information, guides_random_position):
+                 evacuees_share_information, guides_random_position, show_map, rectangles_num, rectangles_max_size,
+                 erosion_proba):
 
         super().__init__()
         # Mapping parameters
         self.width = width
         self.height = height
         self.map_type = map_type
-        self.evacuees_num = evacuees_num
-        self.guides_num = guides_num
         self.ghost_agents = ghost_agents
         self.guides_mode = guides_mode
         self.evacuees_share_information = evacuees_share_information
-        self.guides_random_position = guides_random_position
+
+        random_rectangles_params = {"rectangles_num": rectangles_num, "rectangles_max_size": rectangles_max_size,
+                                    "erosion_proba": erosion_proba}
 
         # CONFIG
         self.schedule = RandomActivationByBreed(self)
@@ -65,18 +66,17 @@ class EvacuationModel(Model):
         exits_areas_corners = [((0, 0), (25, 0)), ((75, 99), (99, 99))]
         self.exits_positions = self.init_exits(available_positions, exits_areas_corners)
 
-        self.obstacles_positions = self.init_obstacles(available_positions, areas_centers, fixed_positions)
+        self.obstacles_positions = self.init_obstacles(available_positions, areas_centers, fixed_positions,
+                                                       random_rectangles_params)
 
-        self.exits_maps, unreachable_positions = self.init_exits_maps(self.exits_positions, show_map=True)
+        self.exits_maps, unreachable_positions = self.init_exits_maps(self.exits_positions, show_map=show_map)
 
-        # [available_positions.remove(pos) for pos in unreachable_positions]
         available_positions = list(set(available_positions) - unreachable_positions)
 
         self.sensors = self.init_sensors(available_positions, areas_centers, fixed_positions)
-        self.guides_positions = self.init_guides(available_positions, areas_centers)
-        self.evacuees_positions = self.init_evacuees(available_positions)
+        self.guides_positions = self.init_guides(guides_num, guides_random_position, available_positions, areas_centers)
+        self.evacuees_positions = self.init_evacuees(evacuees_num, available_positions)
 
-        self.running = True
         self.datacollector.collect(self)
 
     def run_model(self):
@@ -113,7 +113,7 @@ class EvacuationModel(Model):
         if self.verbose:
             print([self.schedule.time, self.schedule.get_breed_count(Evacuee)])
 
-    def init_obstacles(self, available_positions, areas_centers, fixed_positions):
+    def init_obstacles(self, available_positions, areas_centers, fixed_positions, random_rectangles_params):
         obstacles_corners = []
         obstacles_positions = set()
 
@@ -139,11 +139,11 @@ class EvacuationModel(Model):
                 obstacles_corners.append(((x + thck, y + thck), (x - thck, y - thck)))
 
         elif self.map_type == 'random_rectangles':
-            obstacles_positions = set()
-            rectangles_num = 15
-            rectangle_max_size = range(1, 15)
-            erosion_proba = 0
+            rectangles_num = random_rectangles_params['rectangles_num']
+            rectangle_max_size = range(1, random_rectangles_params['rectangles_max_size'])
+            erosion_proba = random_rectangles_params['erosion_proba']
 
+            obstacles_positions = set()
             for _ in range(rectangles_num):
                 center = random.choice(available_positions)
 
@@ -160,8 +160,6 @@ class EvacuationModel(Model):
                         rectangle_points.add((x, y))
 
                 rectangle_points = rectangle_points.intersection(set(available_positions))
-
-                # print(random.choices([True, False], weights=[erosion_proba, 1 - erosion_proba], k=1))
 
                 for pos in list(rectangle_points):
                     if random.choices([True, False], weights=[erosion_proba, 1 - erosion_proba], k=1)[0]:
@@ -204,6 +202,7 @@ class EvacuationModel(Model):
             start_position = (int(median([x[0] for x in v])), int(median(([x[1] for x in v]))))
 
             area_map, unreachable_positions_part = self.generate_square_rounded_map(start_position, v)
+
             exits_maps[k] = area_map
             unreachable_positions.update(unreachable_positions_part)
 
@@ -234,10 +233,10 @@ class EvacuationModel(Model):
 
         return sensors
 
-    def init_guides(self, available_positions, areas_centers):
+    def init_guides(self, guides_num, guides_random_position, available_positions, areas_centers):
         guides_positions = set()
-        for i in range(self.guides_num):
-            if self.guides_random_position or self.map_type == 'boxes' or self.map_type == 'random_rectangles':
+        for i in range(guides_num):
+            if guides_random_position or self.map_type == 'boxes' or self.map_type == 'random_rectangles':
                 pos = random.choice(available_positions)
             else:
                 pos = areas_centers[i]
@@ -252,12 +251,12 @@ class EvacuationModel(Model):
 
         return guides_positions
 
-    def init_evacuees(self, available_positions):
-        if self.evacuees_num > len(available_positions):
-            self.evacuees_num = len(available_positions)
+    def init_evacuees(self, evacuees_num, available_positions):
+        if evacuees_num > len(available_positions):
+            evacuees_num = len(available_positions)
 
         evacuees_positions = set()
-        for _ in range(self.evacuees_num):
+        for _ in range(evacuees_num):
             pos = random.choice(available_positions)
             evacuees_positions.add(pos)
             available_positions.remove(pos)
@@ -277,36 +276,6 @@ class EvacuationModel(Model):
         ys = sorted([y1, y2])
 
         return list(product(range(xs[0], xs[1] + 1), range(ys[0], ys[1] + 1)))
-
-    def generate_square_map(self, start_position, exits_positions):
-
-        area_map = np.empty((self.width, self.height), int)
-        available_positions = set(self.area_positions_from_points((0, 0), (99, 99))) - self.obstacles_positions
-
-        current_positions = {start_position}
-        distance = 0
-
-        while available_positions != set():
-            for x, y in current_positions:
-                area_map[x][y] = distance
-
-            next_positions = set()
-
-            for pos in current_positions:
-                next_positions.update(self.grid.get_neighborhood(pos, moore=True))
-
-            available_positions -= current_positions
-            current_positions = next_positions.intersection(available_positions)
-
-            distance += 1
-
-        for x, y in exits_positions:
-            area_map[x][y] = 0
-
-        for x, y in self.obstacles_positions:
-            area_map[x][y] = int(self.max_route_len)
-
-        return area_map
 
     def generate_square_rounded_map(self, start_position, exit_positions):
         area_map = np.empty((self.width, self.height), int)
