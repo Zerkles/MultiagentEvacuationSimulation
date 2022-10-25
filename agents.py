@@ -1,14 +1,7 @@
-import math
-from collections import Counter
-import random
-from statistics import mean
-
 from mesa import Agent
 
 
 class WalkingAgent(Agent):
-    # Point (0x,0y) is in LEFT BOTTOM; U-Up, D-Down, L-Left, M-Middle, R-Right;
-    directions = ["DL", "ML", "UL", "DM", "MM", "UM", "DR", "MR", "UR"]
 
     def __init__(self, uid, pos, model, positions_set):
         super().__init__(uid, model)
@@ -28,22 +21,6 @@ class WalkingAgent(Agent):
 
         return legal_positions
 
-    def get_legal_actions(self):
-
-        x, y = self.pos
-        generated_neighbourhood = self.model.area_positions_from_points((x - 1, y - 1), (x + 1, y + 1))
-
-        all_actions = dict(zip(generated_neighbourhood, self.directions))
-        legal_positions = self.get_legal_positions()
-
-        legal_actions = dict()
-
-        for k, v in all_actions.items():
-            if k in legal_positions:
-                legal_actions.update({k: v})
-
-        return {value: key for (key, value) in legal_actions.items()}
-
     def move(self, pos):
         self.positions_set.discard(self.pos)
         self.positions_set.add(pos)
@@ -61,14 +38,52 @@ class WalkingAgent(Agent):
             if type(n) != Evacuee:
                 continue
 
-            if type(self) == Guide or n.assigned_exit_area_id is None:
+            if type(self) == GuideAgent or n.assigned_exit_area_id is None:
                 n.assigned_exit_area_id = exit_id
+
+
+class GuideAgent(WalkingAgent):
+    # Point (0x,0y) is in LEFT BOTTOM; U-Up, D-Down, L-Left, M-Middle, R-Right;
+    directions = ["DL", "ML", "UL", "DM", "MM", "UM", "DR", "MR", "UR"]
+
+    def __init__(self, uid, pos, model, positions_set):
+        super().__init__(uid, pos, model, positions_set)
+
+    def get_closest_exit(self):
+        x, y = self.pos
+
+        closest_exit_id = None
+        closest_exit_distance = self.model.max_route_len
+        for k, v in self.model.exits_maps.items():
+            dst = v[x][y]
+
+            if dst < closest_exit_distance:
+                closest_exit_distance = dst
+                closest_exit_id = k
+
+        return closest_exit_id, closest_exit_distance
+
+    def get_legal_actions(self):
+
+        x, y = self.pos
+        generated_neighbourhood = self.model.area_positions_from_points((x - 1, y - 1), (x + 1, y + 1))
+
+        all_actions = dict(zip(generated_neighbourhood, self.directions))
+        legal_positions = self.get_legal_positions()
+
+        legal_actions = dict()
+
+        for k, v in all_actions.items():
+            if k in legal_positions:
+                legal_actions.update({k: v})
+
+        return {value: key for (key, value) in legal_actions.items()}
 
 
 class Evacuee(WalkingAgent):
     def __init__(self, uid, pos, model, positions_set):
         super().__init__(uid, pos, model, positions_set)
-        self.assigned_exit_area_id = 1
+        self.assigned_exit_area_id = None
 
     def step(self):
         if self.assigned_exit_area_id is None:
@@ -93,102 +108,6 @@ class Evacuee(WalkingAgent):
         return legal_positions_distances
 
 
-class Guide(WalkingAgent):
-    alpha = 0.5
-    beta = 0.1
-    theta = 3
-
-    def __init__(self, uid, pos, model, mode, positions_set):
-        super().__init__(uid, pos, model, positions_set)
-        self.mode = mode
-
-        if mode == "A":
-            self.step = self.step_mode_a
-            self.direction_change_timer = 0
-            self.closest_exit_id = 1
-        elif mode == "B":
-            self.step = self.step_mode_b
-        elif mode == "none":
-            pass
-
-    def step_mode_a(self):
-        # Escape broadcast
-        self.closest_exit_id = self.get_closest_exit()
-        self.broadcast_exit_id(self.closest_exit_id)
-
-        # Theta timer
-        if self.direction_change_timer > 0:
-            self.direction_change_timer -= 1
-            return
-
-        # Moving
-        legal_positions = self.get_legal_positions()
-        legal_positions_goals = self.delta_function_a(legal_positions)
-
-        best_position = min(legal_positions_goals, key=legal_positions_goals.get)
-        self.move(best_position)
-
-    def step_mode_b(self):
-        # Escape broadcast
-        self.closest_exit_id = self.get_closest_exit()
-        self.broadcast_exit_id(self.closest_exit_id)
-
-        # Theta timer
-        if self.direction_change_timer > 0:
-            self.direction_change_timer -= 1
-            return
-
-        # Moving
-        legal_positions = self.get_legal_positions()
-        legal_positions_goals = self.delta_function_a(legal_positions)
-
-
-    def delta_function_a(self, legal_positions):
-        guides_positions = self.model.guides_positions.copy()
-        guides_positions.remove(self.pos)
-
-        if guides_positions == set():
-            return
-
-        legal_positions_with_goal = {}
-        for pos in legal_positions:
-            for s in self.model.sensors:
-                direction_pull = s.evacuees_in_area / (math.dist(pos, s.pos) + 0.0001)  # to avoid zero division
-
-                direction_repulsion = 0
-                if guides_positions != set():
-                    direction_repulsion = Guide.beta / mean([math.dist(g_pos, pos) for g_pos in guides_positions])
-
-                goal = Guide.alpha * direction_pull + (1 - Guide.alpha) * direction_repulsion
-
-            legal_positions_with_goal.update({pos: goal})
-
-        return legal_positions_with_goal
-
-    def delta_function_b(self, legal_positions):
-        guides_positions = self.model.guides_positions.copy()
-        guides_positions.remove(self.pos)
-
-        pass
-
-
-
-    def get_closest_exit(self):
-        x, y = self.pos
-
-        closest_exit, map = self.model.exits_maps.keys()[1]
-        min_dst = self.model.diagonal + 1
-
-        for exit_area_id, map in self.model.exits_maps.items()[1:]:
-            dst = map[x][y]
-
-            if dst < min_dst:
-                min_dst = dst
-                closest_exit = exit_area_id
-
-        return closest_exit
-
-
 class Obstacle(Agent):
     def __init__(self, uid, pos, model):
         super().__init__(uid, model)
@@ -205,7 +124,7 @@ class Exit(Agent):
         agents = self.model.grid.get_cell_list_contents(self.pos)
 
         for agent in agents:
-            if type(agent) is Evacuee or type(agent) is Guide:
+            if type(agent) is Evacuee or isinstance(agent, GuideAgent):
                 agent.remove()
 
 

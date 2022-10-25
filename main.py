@@ -2,7 +2,7 @@ from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.modules import CanvasGrid, ChartModule
 from mesa.visualization.UserParam import Slider, Checkbox, Choice, StaticText
 
-from agents import Evacuee, Guide, Obstacle, Exit, MapInfo
+from agents import Evacuee, GuideAgent, Obstacle, Exit, MapInfo
 from model import EvacuationModel
 
 
@@ -19,7 +19,7 @@ def agents_portrayal(agent):
         portrayal["Layer"] = 1
         portrayal["r"] = 1
 
-    elif type(agent) is Guide:
+    elif isinstance(agent, GuideAgent):
         portrayal["Color"] = "blue"
         portrayal["Shape"] = "circle"
         portrayal["Filled"] = "true"
@@ -56,7 +56,7 @@ def agents_portrayal(agent):
 
 HEIGHT = WIDTH = 100
 
-canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1100, 750)
+canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 950, 550)
 # canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1500, 1500)
 chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 
@@ -70,7 +70,7 @@ model_params = {
 
     "Guides Info": StaticText("Guides settings:"),
     "guides_num": Slider("Number of Guides", 2, 1, 4),
-    "guides_mode": Choice("Guides action mode", "none", ["A", "B", "none"]),
+    "guides_mode": Choice("Guides action mode", "Q Learning", ["A", "B", "None", "Q Learning"]),
     "guides_random_position": Checkbox("Guides start from random position", False),
 
     "Evacuees Info": StaticText("Evacuees settings:"),
@@ -80,7 +80,13 @@ model_params = {
     "Map Info": StaticText("Map settings:"),
     "map_type": Choice("Map type", 'default', ["default", "cross", "boxes", 'random_rectangles']),
 
-    "Random Rectangles Info": StaticText("Only for random_rectangles map:"),
+    "Cross Map Info": StaticText("Only for cross map:"),
+    "cross_gap": Slider("Cross gap (symmetric)", 10, 1, 25),
+
+    "Boxes Map Info": StaticText("Only for boxes map:"),
+    "boxes_thickness": Slider("Boxes thickness", 15, 1, 20),
+
+    "Random Rectangles Map Info": StaticText("Only for random_rectangles map:"),
     "rectangles_num": Slider("Number of rectangles", 10, 1, 30),
     "rectangles_max_size": Slider("Maximal length of one side", 15, 1, 50),
     "erosion_proba": Slider("Probability for each position to disappear", 0.5, 0.0, 1.0, 0.1),
@@ -88,7 +94,7 @@ model_params = {
 
 server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
                        model_params)
-
 server.port = 8521
 server.launch()
+
 # TODO: Change default FPS to 0 (Max possible)

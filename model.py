@@ -1,7 +1,10 @@
 import itertools
+import json
 import math
+import os
 import sys
-from collections import Counter
+import time
+from collections import Counter, defaultdict
 from math import sqrt
 from statistics import mean, median
 
@@ -10,7 +13,8 @@ from mesa import Model
 from mesa.space import MultiGrid
 from mesa.datacollection import DataCollector
 
-from agents import Evacuee, Guide, Obstacle, Exit, Sensor, MapInfo
+from agents import Evacuee, Obstacle, Exit, Sensor, MapInfo
+from agents_guides import GuideAgent, GuideABT, GuideQLearning
 from schedule import RandomActivationByBreed
 import random
 from itertools import product
@@ -25,7 +29,7 @@ class EvacuationModel(Model):
 
     def __init__(self, width, height, guides_mode, map_type, evacuees_num, guides_num, ghost_agents,
                  evacuees_share_information, guides_random_position, show_map, rectangles_num, rectangles_max_size,
-                 erosion_proba):
+                 erosion_proba, cross_gap, boxes_thickness):
 
         super().__init__()
         # Mapping parameters
@@ -36,8 +40,9 @@ class EvacuationModel(Model):
         self.guides_mode = guides_mode
         self.evacuees_share_information = evacuees_share_information
 
-        random_rectangles_params = {"rectangles_num": rectangles_num, "rectangles_max_size": rectangles_max_size,
-                                    "erosion_proba": erosion_proba}
+        map_params = {"rectangles_num": rectangles_num, "rectangles_max_size": rectangles_max_size,
+                      "erosion_proba": erosion_proba, "cross_gap": cross_gap,
+                      "boxes_thickness": boxes_thickness}
 
         # CONFIG
         self.schedule = RandomActivationByBreed(self)
@@ -67,25 +72,27 @@ class EvacuationModel(Model):
         self.exits_positions = self.init_exits(available_positions, exits_areas_corners)
 
         self.obstacles_positions = self.init_obstacles(available_positions, areas_centers, fixed_positions,
-                                                       random_rectangles_params)
+                                                       map_params)
 
         self.exits_maps, unreachable_positions = self.init_exits_maps(self.exits_positions, show_map=show_map)
 
         available_positions = list(set(available_positions) - unreachable_positions)
 
         self.sensors = self.init_sensors(available_positions, areas_centers, fixed_positions)
-        self.guides_positions = self.init_guides(guides_num, guides_random_position, available_positions, areas_centers)
+        self.guides, self.guides_positions = self.init_guides(guides_num, guides_random_position, available_positions,
+                                                              areas_centers)
         self.evacuees_positions = self.init_evacuees(evacuees_num, available_positions)
 
         self.datacollector.collect(self)
 
     def run_model(self):
-        # TODO: This method should be used by server, but it is not for some reason
-        #  (then there is "stop if" in step function)
+        # This method is not invoked by server!
+
+        simulation_start_time = time.time()
 
         if self.verbose:
             print("Initial number of Evacuees: ", self.schedule.get_breed_count(Evacuee))
-            print("Initial number of Guides: ", self.schedule.get_breed_count(Guide))
+            print("Initial number of Guides: ", self.schedule.get_breed_count(GuideAgent))
 
         while self.schedule.get_breed_count(Evacuee) > 0:
             self.step()
@@ -93,16 +100,20 @@ class EvacuationModel(Model):
         if self.verbose:
             print("")
             print("Final number of Evacuees: ", self.schedule.get_breed_count(Evacuee))
-            print("Final number of Guides: ", self.schedule.get_breed_count(Guide))
+            print("Final number of Guides: ", self.schedule.get_breed_count(GuideAgent))
+
+        return time.time() - simulation_start_time
 
     def step(self):
-        for breed in [Exit, Sensor, Guide]:
+        for breed in [Exit, Sensor, GuideAgent, GuideQLearning, GuideABT, Evacuee]:
             self.schedule.step_breed(breed)
 
-        dct = {k: self.exits_maps[v.assigned_exit_area_id][v.pos[0]][v.pos[1]] for k, v in
-               self.schedule.agents_by_breed[Evacuee].items()}
-        order = sorted(dct, key=dct.get)
-        self.schedule.step_breed_ordered(Evacuee, order)
+        # TODO Avoid nones
+
+        # dct = {k: self.exits_maps[v.assigned_exit_area_id][v.pos[0]][v.pos[1]] for k, v in
+        #        self.schedule.agents_by_breed[Evacuee].items()}
+        # order = sorted(dct, key=dct.get)
+        # self.schedule.step_breed_ordered(Evacuee, order)
 
         # collect data
         self.datacollector.collect(self)
@@ -110,17 +121,26 @@ class EvacuationModel(Model):
         if self.schedule.get_breed_count(Evacuee) == 0:
             self.running = False
 
+            for a in self.guides:
+                a.final(1000)
+
+        elif self.guides == set():
+            self.running = False
+
+            for a in self.guides:
+                a.final(-500)
+
         if self.verbose:
             print([self.schedule.time, self.schedule.get_breed_count(Evacuee)])
 
-    def init_obstacles(self, available_positions, areas_centers, fixed_positions, random_rectangles_params):
+    def init_obstacles(self, available_positions, areas_centers, fixed_positions, map_params):
         obstacles_corners = []
         obstacles_positions = set()
 
         if self.map_type == 'default':
             return set()
         elif self.map_type == 'cross':
-            gap_thck = 10  # gap thickness
+            gap_thck = map_params["cross_gap"]  # gap thickness
             obstacles_corners = [((fixed_positions['x_1_2'], 0 + gap_thck),
                                   (fixed_positions['x_1_2'], fixed_positions['y_1_2'] - gap_thck)),
 
@@ -134,14 +154,14 @@ class EvacuationModel(Model):
                                   (self.height - gap_thck, fixed_positions['y_1_2']))]
 
         elif self.map_type == 'boxes':
-            thck = 15  # thickness
+            thck = map_params["boxes_thickness"]  # thickness
             for x, y in areas_centers:
                 obstacles_corners.append(((x + thck, y + thck), (x - thck, y - thck)))
 
         elif self.map_type == 'random_rectangles':
-            rectangles_num = random_rectangles_params['rectangles_num']
-            rectangle_max_size = range(1, random_rectangles_params['rectangles_max_size'])
-            erosion_proba = random_rectangles_params['erosion_proba']
+            rectangles_num = map_params['rectangles_num']
+            rectangle_max_size = range(1, map_params['rectangles_max_size'])
+            erosion_proba = map_params['erosion_proba']
 
             obstacles_positions = set()
             for _ in range(rectangles_num):
@@ -234,6 +254,12 @@ class EvacuationModel(Model):
         return sensors
 
     def init_guides(self, guides_num, guides_random_position, available_positions, areas_centers):
+        q_learn_weights = defaultdict(lambda: 0.0)
+        if self.guides_mode == "Q Learning" and os.path.exists("output/weights.txt"):
+            with open("output/weights.txt", "r") as f:
+                q_learn_weights.update(dict(json.load(f)))
+
+        guides = set()
         guides_positions = set()
         for i in range(guides_num):
             if guides_random_position or self.map_type == 'boxes' or self.map_type == 'random_rectangles':
@@ -244,12 +270,17 @@ class EvacuationModel(Model):
             guides_positions.add(pos)
             available_positions.remove(pos)
 
-            guide = Guide(uid=self.next_id(), pos=pos, model=self, mode=self.guides_mode,
-                          positions_set=guides_positions)
+            if self.guides_mode == "Q Learning":
+                guide = GuideQLearning(uid=self.next_id(), pos=pos, model=self,
+                                       positions_set=guides_positions, weights=q_learn_weights)
+            else:
+                guide = GuideABT(uid=self.next_id(), pos=pos, model=self, mode=self.guides_mode,
+                                 positions_set=guides_positions)
             self.grid.place_agent(guide, pos)
             self.schedule.add(guide)
+            guides.add(guide)
 
-        return guides_positions
+        return guides, guides_positions
 
     def init_evacuees(self, evacuees_num, available_positions):
         if evacuees_num > len(available_positions):
