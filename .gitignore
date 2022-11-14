@@ -129,8 +129,5 @@ dmypy.json
 .pyre/
 
 .idea
-fox-beavers
-mesa-basics
 output
-misio
-lab6
+.examples

@@ -2,8 +2,8 @@ from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.modules import CanvasGrid, ChartModule
 from mesa.visualization.UserParam import Slider, Checkbox, Choice, StaticText
 
-from agents import Evacuee, GuideAgent, Obstacle, Exit, MapInfo
-from model import EvacuationModel
+from agents.agents import Evacuee, GuideAgent, Exit, Obstacle, MapInfo
+from simulation.model import EvacuationModel
 
 
 def agents_portrayal(agent):
@@ -90,11 +90,11 @@ model_params = {
     "rectangles_num": Slider("Number of rectangles", 10, 1, 30),
     "rectangles_max_size": Slider("Maximal length of one side", 15, 1, 50),
     "erosion_proba": Slider("Probability for each position to disappear", 0.5, 0.0, 1.0, 0.1),
+
+    "qlearning_params": {'epsilon': 0.5, 'gamma': 0.8, 'alpha': 0.0, 'weights': None}
 }
 
 server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
                        model_params)
 server.port = 8521
 server.launch()
-
-# TODO: Change default FPS to 0 (Max possible)
