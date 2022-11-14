@@ -9,8 +9,9 @@ from simulation.simulation_state import SimulationState
 
 
 class FeatureExtractor:
-    unvisited_positions = set(EvacuationGrid.area_positions_from_points((0, 0), (99, 99)))
     informed_evacuees = 0
+    maps = dict()
+    unvisited_positions = set()
 
     def __init__(self, guide_id):
         self.guide_id = guide_id
@@ -37,16 +38,16 @@ class FeatureExtractor:
         # closest_exit_position
         closest_exit_id, closest_exit_distance = FeatureExtractor.get_closest_exit(state, pos, normalize=True)
 
-        # closest other guide
-        area_map, _ = state.grid.generate_square_rounded_map(pos, {pos})
-        max_area_route_len = np.amax(area_map)
-        closest_guide, closest_guide_distance = self.get_closest_guide(state, pos, area_map, max_area_route_len,
-                                                                       normalize=True)
-
-        # visited positions
-        closest_unvisited_position = FeatureExtractor.get_closest_unvisited_position(state, pos, area_map,
-                                                                                     max_area_route_len,
-                                                                                     normalize=True)
+        # # closest other guide
+        # area_map, _ = FeatureExtractor.maps[pos]
+        # max_area_route_len = np.amax(area_map)
+        # closest_guide, closest_guide_distance = self.get_closest_guide(state, pos, area_map, max_area_route_len,
+        #                                                                normalize=True)
+        #
+        # # visited positions
+        # closest_unvisited_position = FeatureExtractor.get_closest_unvisited_position(state, pos, area_map,
+        #                                                                              max_area_route_len,
+        #                                                                              normalize=True)
 
         features = {
             'bias': 1.0,
@@ -58,21 +59,16 @@ class FeatureExtractor:
             # 'closest_exit_id': closest_exit_id,
             'closest_exit_distance': closest_exit_distance,
 
-            'closest_guide_distance': closest_guide_distance,
-
-            'closest_unvisited_position': closest_unvisited_position,
+            # 'closest_guide_distance': closest_guide_distance,
+            #
+            # 'closest_unvisited_position': closest_unvisited_position,
         }
 
         return features
 
-    def get_reward(self, state, action, next_state):
-        next_feats = self.get_features(state, action)
-        feats = self.get_features(state)
+    def get_reward(self, feats, next_feats):
 
-        # print("f", feats)
-        # print("nf", next_feats)
-
-        if len(next_state.schedule.agents_by_breed[Evacuee]) > 0:
+        if next_feats['uninformed_evacuees'] > 0:
             if feats['newly_informed_evacuees'] > 0:
                 return 10.0
             else:
@@ -114,7 +110,8 @@ class FeatureExtractor:
                 closest_sensor = agent
 
         if normalize:
-            closest_sensor_distance = FeatureExtractor.normalize(closest_sensor_distance, state.width * math.sqrt(2))
+            closest_sensor_distance = FeatureExtractor.normalize(closest_sensor_distance,
+                                                                 (state.width - 1) * math.sqrt(2))
 
         return closest_sensor, closest_sensor_distance
 
@@ -182,15 +179,16 @@ class FeatureExtractor:
 
         return closest_guide_distance
 
-    def update_extractor(self, state: SimulationState, action):
-        guide = self.get_guide_obj(state)
-        next_pos = state.grid.action_to_position(guide.pos, action)
+    def update_extractor(self, next_state: SimulationState):
+        # guide = self.get_guide_obj(next_state)
 
-        # informed evacuees
-        self.get_newly_informed_evacuees(state, next_pos, update_variables=True)
+        pass
 
-        # visited positions
-        FeatureExtractor.unvisited_positions -= set(state.grid.get_neighborhood(next_pos, True, include_center=True))
+        # # informed evacuees
+        # self.get_newly_informed_evacuees(state, pos, update_variables=True)
+        #
+        # # visited positions
+        # FeatureExtractor.unvisited_positions -= set(state.grid.get_neighborhood(pos, True, include_center=True))
 
     @staticmethod
     def normalize(value, max_value):

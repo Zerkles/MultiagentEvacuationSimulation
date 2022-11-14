@@ -16,6 +16,7 @@ from agents.agents import Obstacle, Exit, Sensor, MapInfo, StateAgent, GuideAgen
 from agents.agents_guides import GuideABT, GuideQLearning
 import random
 
+from agents.feature_extractor import FeatureExtractor
 from simulation.grid import EvacuationGrid
 from simulation.schedule import EvacuationScheduler
 from simulation.simulation_state import SimulationState
@@ -75,7 +76,8 @@ class EvacuationModel(Model):
         available_positions = EvacuationGrid.area_positions_from_points((0, 0), (self.width - 1, self.height - 1))
 
         # EXITS
-        exits_areas_corners = [((0, 0), (25, 0)), ((75, 99), (99, 99))]
+        exit_len = 25
+        exits_areas_corners = [((0, 0), (exit_len, 0)), ((width - 1 - exit_len, height - 1), (width - 1, height - 1))]
         exits_positions = self.init_exits(available_positions, exits_areas_corners)
         self.grid.positions_by_breed[Exit] = exits_positions
 
@@ -102,6 +104,15 @@ class EvacuationModel(Model):
         # EVACUEES
         evacuees_positions = self.init_evacuees(evacuees_num, available_positions)
         self.grid.positions_by_breed[Evacuee] = evacuees_positions
+
+        # FeatureExtractor INIT
+        FeatureExtractor.unvisited_positions = set(
+            EvacuationGrid.area_positions_from_points((0, 0), (width - 1, height - 1)))
+
+        # FeatureExtractor.maps = dict()
+        # for pos in EvacuationGrid.area_positions_from_points((0, 0), (self.width - 1, self.height - 1)):
+        #     area_map, _ = self.grid.generate_square_rounded_map(pos, {pos})
+        #     FeatureExtractor.maps[pos] = area_map
 
         self.datacollector.collect(self)
 
@@ -187,6 +198,21 @@ class EvacuationModel(Model):
         # else:
         #     for k, v in vars:
         #         self.qlearning_params[k] = (self.qlearning_params[k] + vars[k]) / 2
+
+    def get_simulation_state(self, deep=False):
+        params_keys = ['width', 'height', 'guides_mode', 'map_type', 'evacuees_num', 'ghost_agents',
+                       'evacuees_share_information', 'max_route_len']
+        params = {k: v for k, v in vars(self).items() if k in params_keys}
+        exit_maps = self.exit_maps
+
+        if deep:
+            grid = deepcopy(self.grid)
+            schedule = deepcopy(self.schedule)
+        else:
+            grid = self.grid
+            schedule = self.schedule
+
+        return SimulationState(grid, schedule, exit_maps, params)
 
     def init_obstacles(self, available_positions, areas_centers, fixed_positions, map_params):
         obstacles_corners = []
@@ -361,20 +387,3 @@ class EvacuationModel(Model):
             available_positions.remove(pos)
 
         return evacuees_positions
-
-
-
-    def get_simulation_state(self, deep=False):
-        params_keys = ['width', 'height', 'guides_mode', 'map_type', 'evacuees_num', 'ghost_agents',
-                       'evacuees_share_information', 'max_route_len']
-        params = {k: v for k, v in vars(self).items() if k in params_keys}
-        exit_maps = self.exit_maps
-
-        if deep:
-            grid = deepcopy(self.grid)
-            schedule = deepcopy(self.schedule)
-        else:
-            grid = self.grid
-            schedule = deepcopy(self.schedule)
-
-        return SimulationState(grid, schedule, exit_maps, params)

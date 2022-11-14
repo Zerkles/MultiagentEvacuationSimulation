@@ -123,22 +123,27 @@ class GuideQLearning(GuideAgent):
 
     def get_q_value(self, state, action):
         feats = self.extractor.get_features(state, action)
+
+        return self.get_q_value_feats(feats)
+
+    def get_q_value_feats(self, feats):
         q_val = 0
 
         for k in feats.keys():
             q_val += feats[k] * self.weights[k]
         return q_val
 
-    def update(self, state, action, next_state, reward):
+    def update(self, feats, action, next_state, reward):
+        next_feats = self.extractor.get_features(next_state)
+
         max_Q_sa_prim = self.compute_value_from_q_values(next_state)
-        Q_sa = self.get_q_value(state, action)
+        Q_sa = self.get_q_value_feats(next_feats)
         diff = reward + (self.gamma * max_Q_sa_prim) - Q_sa
 
-        feats = self.extractor.get_features(state, action)
-        for k in feats.keys():
-            self.weights[k] = self.weights[k] + (self.alpha * diff * feats[k])
+        for k in next_feats.keys():
+            self.weights[k] = self.weights[k] + (self.alpha * diff * next_feats[k])
 
-        self.extractor.update_extractor(state, action)
+        self.extractor.update_extractor(next_feats)
         self.score += reward
 
         # print(self.score)

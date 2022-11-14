@@ -33,7 +33,7 @@ model_params = {
 
 qlearning_params = model_params['qlearning_params']
 
-n_games = 1000
+n_games = 50
 epsilon_min = 0.2
 epsilon_diff = (qlearning_params['epsilon'] - epsilon_min) / n_games
 
