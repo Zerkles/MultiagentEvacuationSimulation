@@ -362,8 +362,6 @@ class EvacuationModel(Model):
 
         return evacuees_positions
 
-
-
     def get_simulation_state(self, deep=False):
         params_keys = ['width', 'height', 'guides_mode', 'map_type', 'evacuees_num', 'ghost_agents',
                        'evacuees_share_information', 'max_route_len']
@@ -375,6 +373,6 @@ class EvacuationModel(Model):
             schedule = deepcopy(self.schedule)
         else:
             grid = self.grid
-            schedule = deepcopy(self.schedule)
+            schedule = self.schedule
 
         return SimulationState(grid, schedule, exit_maps, params)
