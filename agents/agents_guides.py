@@ -5,7 +5,7 @@ from collections import defaultdict
 from statistics import mean
 from typing import Tuple, Dict
 
-from agents.agents import GuideAgent, Evacuee
+from agents.agents import GuideAgent, Evacuee, Exit
 from agents.feature_extractor import FeatureExtractor
 
 
@@ -81,13 +81,14 @@ class GuideQLearning(GuideAgent):
                  gamma: float = 0.8, alpha: float = 0.2, extractor=None, weights=None):
 
         super().__init__(uid, pos, random_seed)
-        self.score = 100
+        self.lifepoints = 100
+        self.score = 0
 
         self.epsilon = epsilon  # exploration rate
         self.gamma = gamma  # discount factor
         self.alpha = alpha  # learning rate
         self.weights = weights
-        self.last_action = None
+        self.last_feats = None
 
         if extractor is None:
             self.extractor = FeatureExtractor(self.unique_id)
@@ -98,17 +99,19 @@ class GuideQLearning(GuideAgent):
     def step(self, state) -> str:
         # Move section
         pos = state.schedule.agents_by_breed[type(self)][self.unique_id].pos
-        ghost_agents = state.ghost_agents
-        legal_actions = state.grid.get_legal_actions(pos, ghost_agents)
+        legal_actions = state.grid.get_legal_actions(pos, state.ghost_agents)
+
+        if legal_actions == {}:
+            return "MM"
 
         best_action = self.compute_action_from_q_values(state, legal_actions)
         legal_actions.remove(best_action)
 
         actions = [best_action] + legal_actions
         actions_weights = [1 - self.epsilon] + ([self.epsilon] * len(legal_actions))
-
         action_to_take = random.choices(actions, actions_weights)[0]
 
+        self.last_feats = self.extractor.get_features(state, action_to_take)
         self.last_action = action_to_take
 
         return action_to_take
@@ -133,23 +136,19 @@ class GuideQLearning(GuideAgent):
             q_val += feats[k] * self.weights[k]
         return q_val
 
-    def update(self, feats, action, next_state, reward):
-        next_feats = self.extractor.get_features(next_state)
-
+    def update(self, feats_action, next_state, reward):
         max_Q_sa_prim = self.compute_value_from_q_values(next_state)
-        Q_sa = self.get_q_value_feats(next_feats)
+        Q_sa = self.get_q_value_feats(feats_action)
         diff = reward + (self.gamma * max_Q_sa_prim) - Q_sa
 
-        for k in next_feats.keys():
-            self.weights[k] = self.weights[k] + (self.alpha * diff * next_feats[k])
+        for k in feats_action.keys():
+            self.weights[k] = self.weights[k] + (self.alpha * diff * feats_action[k])
 
-        self.extractor.update_extractor(next_feats)
-        self.score += reward
+        self.extractor.update_extractor(feats_action, next_state)
+        self.lifepoints += reward
 
-        # print(self.score)
-        # print("state: ", state.schedule.agents_by_breed[type(self)][self.unique_id].pos, action)
-        # print("next: ", next_state.schedule.agents_by_breed[type(self)][self.unique_id].pos)
-        # print(reward)
+        if reward < 0:
+            self.score += reward
 
     def compute_value_from_q_values(self, state):
         pos = state.schedule.agents_by_breed[type(self)][self.unique_id].pos
@@ -182,10 +181,33 @@ class GuideQLearning(GuideAgent):
         return self.weights
 
     def on_remove(self, state):
-        if state.schedule.agents_by_breed[Evacuee] == 0:
-            last_reward = 300
-        else:
-            last_reward = -100
+        # if state.schedule.agents_by_breed[Evacuee] == 0:
+        #     last_reward = self.score * 2
+        # else:
+        #     last_reward = self.score
 
-        self.update(state, self.last_action, state, last_reward)
+        guide = self.extractor.get_guide_obj(state)
+        if guide.pos in state.grid.positions_by_breed[Exit]:
+            last_reward = self.score * 2
+        else:
+            last_reward = self.score
+
+        self.update(self.last_feats, state, last_reward)
         return {'epsilon': self.epsilon, 'alpha': self.alpha, 'gamma': self.gamma, 'weights': self.weights}
+
+    def get_reward(self, feats, next_feats):
+        # if feats['newly_informed_evacuees'] > 0:
+        #     return int(9 * feats['newly_informed_evacuees'])
+        # else:
+        #     return -1.0
+
+        if next_feats['uninformed_evacuees'] > 0:
+            if feats['newly_informed_evacuees'] > 0:
+                return int(9 * feats['newly_informed_evacuees'])
+            else:
+                return -1.0
+
+        elif feats["closest_exit_distance"] > next_feats["closest_exit_distance"]:
+            return 9.0
+        else:
+            return -1.0

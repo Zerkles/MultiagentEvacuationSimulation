@@ -31,7 +31,7 @@ class EvacuationGrid(MultiGrid):
         if not ghost_agents:
             legal_positions -= (self.positions_by_breed[Evacuee].union(self.positions_by_breed[GuideAgent]))
 
-        legal_positions.add(pos)
+        # legal_positions.add(pos)
         return legal_positions
 
     def get_legal_actions_with_positions(self, pos, ghost_agents) -> Dict[str, Tuple[int, int]]:
@@ -51,6 +51,7 @@ class EvacuationGrid(MultiGrid):
 
     def get_legal_actions(self, pos, ghost_agents):
         return list(self.get_legal_actions_with_positions(pos, ghost_agents).keys())
+
 
     @staticmethod
     def area_positions_from_points(pos1, pos2):
