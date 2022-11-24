@@ -1,84 +1,16 @@
-import json
-import math
 import random
 from collections import defaultdict
-from statistics import mean
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
 
-from agents.agents import GuideAgent, Evacuee, Exit
+from agents.agents import GuideAgent, Exit
 from agents.feature_extractor import FeatureExtractor
-
-
-class GuideABT(GuideAgent):
-    alpha = 0.5
-    beta = 0.1
-    theta = 3
-
-    def __init__(self, uid: int, pos: Tuple[int, int], random_seed: random.Random, mode: str, args: Dict = None):
-        super().__init__(uid, pos, random_seed, args)
-        self.mode = mode
-
-        self.direction_change_timer = 0
-
-        if mode == "A":
-            self.get_best_position = self.get_best_position_a
-        elif mode == "B":
-            self.get_best_position = self.get_best_position_b
-        elif mode == "None":
-            self.step = super().step
-
-    def step(self, state):
-        # Escape broadcast
-        closest_exit_id, _ = self.get_closest_exit()
-        self.broadcast_exit_id(closest_exit_id)
-
-        # Theta timer
-        if self.direction_change_timer > 0:
-            self.direction_change_timer -= 1
-            return
-
-        # Moving
-        best_position = self.get_best_position()
-
-        self.move(best_position)
-
-    def get_best_position_a(self):
-        guides_positions = self.model.guides_positions.copy()
-        guides_positions.remove(self.pos)
-
-        legal_positions = self.get_legal_positions()
-
-        if guides_positions == set():
-            return
-
-        legal_positions_with_goal = {}
-        for pos in legal_positions:
-            for s in Sensor.positions:
-                direction_pull = s.evacuees_in_area / (math.dist(pos, s.pos) + 0.0001)  # to avoid zero division
-
-                direction_repulsion = 0
-                if guides_positions != set():
-                    direction_repulsion = GuideAgent.beta / mean(
-                        [math.dist(g_pos, pos) for g_pos in guides_positions])
-
-                goal = GuideAgent.alpha * direction_pull + (1 - GuideAgent.alpha) * direction_repulsion
-
-            legal_positions_with_goal.update({pos: goal})
-
-        best_position = min(legal_positions_with_goal, key=legal_positions_with_goal.get)
-
-        return best_position
-
-    def get_best_position_b(self):
-        guides_positions = GuideAgent.positions.copy()
-        guides_positions.remove(self.pos)
-
-        return 0, 0
+from simulation.simulation_state import SimulationState
 
 
 class GuideQLearning(GuideAgent):
     def __init__(self, uid: int, pos: Tuple[int, int], random_seed: random.Random, epsilon: float = 0.0,
-                 gamma: float = 0.8, alpha: float = 0.2, extractor=None, weights=None):
+                 gamma: float = 0.8, alpha: float = 0.2, extractor: FeatureExtractor = None,
+                 weights: Dict = None) -> None:
 
         super().__init__(uid, pos, random_seed)
         self.lifepoints = 100
@@ -96,7 +28,7 @@ class GuideQLearning(GuideAgent):
         if weights is None:
             self.weights = defaultdict(lambda: 0.0)
 
-    def step(self, state) -> str:
+    def step(self, state: SimulationState) -> str:
         # Move section
         pos = state.schedule.agents_by_breed[type(self)][self.unique_id].pos
         legal_actions = state.grid.get_legal_actions(pos, state.ghost_agents)
@@ -116,7 +48,7 @@ class GuideQLearning(GuideAgent):
 
         return action_to_take
 
-    def compute_action_from_q_values(self, state, legal_actions):
+    def compute_action_from_q_values(self, state: SimulationState, legal_actions: List[str]) -> str:
         actions = []
         for action in legal_actions:
             actions.append((action, self.get_q_value(state, action)))
@@ -124,19 +56,19 @@ class GuideQLearning(GuideAgent):
         best_action = max(actions, key=lambda x: x[1])
         return best_action[0]
 
-    def get_q_value(self, state, action):
+    def get_q_value(self, state: SimulationState, action: str) -> float:
         feats = self.extractor.get_features(state, action)
 
         return self.get_q_value_feats(feats)
 
-    def get_q_value_feats(self, feats):
+    def get_q_value_feats(self, feats: Dict) -> float:
         q_val = 0
 
         for k in feats.keys():
             q_val += feats[k] * self.weights[k]
         return q_val
 
-    def update(self, feats_action, next_state, reward):
+    def update(self, feats_action: Dict, next_state: SimulationState, reward: int) -> None:
         max_Q_sa_prim = self.compute_value_from_q_values(next_state)
         Q_sa = self.get_q_value_feats(feats_action)
         diff = reward + (self.gamma * max_Q_sa_prim) - Q_sa
@@ -150,7 +82,7 @@ class GuideQLearning(GuideAgent):
         if reward < 0:
             self.score += reward
 
-    def compute_value_from_q_values(self, state):
+    def compute_value_from_q_values(self, state: SimulationState) -> float:
         pos = state.schedule.agents_by_breed[type(self)][self.unique_id].pos
         ghost_agents = state.ghost_agents
         legal_actions = state.grid.get_legal_actions(pos, ghost_agents)
@@ -164,28 +96,23 @@ class GuideQLearning(GuideAgent):
 
         return max(values)
 
-    def get_exit(self):
-        return 1
+    def get_exit(self, state: SimulationState) -> int:
+        return self.get_closest_exit(state)[0]
 
-    def get_policy(self, state):
+    def get_policy(self, state: SimulationState) -> str:
         pos = state.schedule.agents_by_breed[type(self)][self.unique_id].pos
         ghost_agents = state.ghost_agents
         legal_actions = state.grid.get_legal_actions(pos, ghost_agents)
 
         return self.compute_action_from_q_values(state, legal_actions)
 
-    def get_value(self, state):
+    def get_value(self, state) -> float:
         return self.compute_value_from_q_values(state)
 
-    def get_weights(self):
+    def get_weights(self) -> Dict:
         return self.weights
 
-    def on_remove(self, state):
-        # if state.schedule.agents_by_breed[Evacuee] == 0:
-        #     last_reward = self.score * 2
-        # else:
-        #     last_reward = self.score
-
+    def on_remove(self, state: SimulationState) -> Dict:
         guide = self.extractor.get_guide_obj(state)
         if guide.pos in state.grid.positions_by_breed[Exit]:
             last_reward = self.score * 2
@@ -195,11 +122,7 @@ class GuideQLearning(GuideAgent):
         self.update(self.last_feats, state, last_reward)
         return {'epsilon': self.epsilon, 'alpha': self.alpha, 'gamma': self.gamma, 'weights': self.weights}
 
-    def get_reward(self, feats, next_feats):
-        # if feats['newly_informed_evacuees'] > 0:
-        #     return int(9 * feats['newly_informed_evacuees'])
-        # else:
-        #     return -1.0
+    def get_reward(self, feats: Dict, next_feats: Dict) -> float:
 
         if next_feats['uninformed_evacuees'] > 0:
             if feats['newly_informed_evacuees'] > 0:

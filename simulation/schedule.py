@@ -5,7 +5,7 @@ from typing import List, Type
 from mesa.time import BaseScheduler
 
 from agents.agents import StateAgent, GuideAgent, Exit, Sensor, Evacuee
-from agents.agents_guides import GuideABT, GuideQLearning
+from agents.agents_guides import GuideQLearning
 from simulation.simulation_state import SimulationState
 
 
@@ -15,25 +15,20 @@ class EvacuationScheduler(BaseScheduler):
         super().__init__(model)
         self.agents_by_breed = defaultdict(dict)
 
-    # def __deepcopy__(self, memodict={}):
-    #     new_instance = EvacuationScheduler(self.model)
-    #     new_instance.agents_by_breed = deepcopy(self.agents_by_breed)
-    #     return new_instance
-
-    def add(self, agent: StateAgent):
+    def add(self, agent: StateAgent) -> None:
 
         self._agents[agent.unique_id] = agent
         agent_class = type(agent)
         self.agents_by_breed[agent_class][agent.unique_id] = agent
 
-    def remove(self, agent: StateAgent):
+    def remove(self, agent: StateAgent) -> None:
 
         del self._agents[agent.unique_id]
         agent_class = type(agent)
 
         del self.agents_by_breed[agent_class][agent.unique_id]
 
-    def step(self, by_breed: bool = True):
+    def step(self, by_breed: bool = True) -> None:
         if not by_breed:
             super().step()
         else:
@@ -82,18 +77,18 @@ class EvacuationScheduler(BaseScheduler):
 
             action = guide.step(state_ref)
 
-            feats = guide.extractor.get_features(state_ref,action)
+            feats = guide.extractor.get_features(state_ref, action)
             feats_next = guide.extractor.get_features(state_ref, action)
 
             self.model.move_agent(guide, action)
-            self.model.broadcast_exit_info(guide, guide.get_exit(), True)
+            self.model.broadcast_exit_info(guide, guide.get_exit(state_ref), True)
 
             state_ref = self.model.get_simulation_state()
 
             reward = guide.get_reward(feats, feats_next)
             guide.update(feats, state_ref, reward)
 
-    def step_breed(self, breed: Type, state: SimulationState, index_order: List[int] = None):
+    def step_breed(self, breed: Type, state: SimulationState, index_order: List[int] = None) -> None:
         if index_order is None:
             agent_keys = list(self.agents_by_breed[breed].keys())
             self.model.random.shuffle(agent_keys)
@@ -105,20 +100,20 @@ class EvacuationScheduler(BaseScheduler):
             move = agent.step(state)
             self.model.move_agent(agent, move)
 
-    def get_breed_count(self, breed: Type):
+    def get_breed_count(self, breed: Type) -> int:
         return len(self.agents_by_breed[breed].values())
 
-    def get_guides_count(self):
+    def get_guides_count(self) -> int:
         count = 0
         for k, v in self.agents_by_breed.items():
             if issubclass(k, GuideAgent):
                 count += len(v)
         return count
 
-    def get_breed_agents(self, breed):
+    def get_breed_agents(self, breed: Type) -> List[StateAgent]:
         return list(self.agents_by_breed[breed].values())
 
-    def get_guides_agents(self):
+    def get_guides_agents(self) -> List[StateAgent]:
         agents = []
         for k, v in self.agents_by_breed.items():
             if issubclass(k, GuideAgent):
@@ -126,5 +121,5 @@ class EvacuationScheduler(BaseScheduler):
 
         return agents
 
-    def get_agent_by_id(self, id):
-        return self._agents[id]
+    def get_agent_by_id(self, uid: int) -> StateAgent:
+        return self._agents[uid]

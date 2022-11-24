@@ -16,7 +16,7 @@ from mesa import Model
 from mesa.datacollection import DataCollector
 
 from agents.agents import Obstacle, Exit, Sensor, MapInfo, StateAgent, GuideAgent, Evacuee
-from agents.agents_guides import GuideABT, GuideQLearning
+from agents.agents_guides import GuideQLearning
 import random
 
 from agents.feature_extractor import FeatureExtractor, get_feature_extractor_maps
@@ -32,9 +32,12 @@ class EvacuationModel(Model):
         "A model for simulating area evacuation. Consists of many evacuees and a few cooperating evacuation guides."
     )
 
-    def __init__(self, width, height, guides_mode, map_type, evacuees_num, guides_num, ghost_agents,
-                 evacuees_share_information, guides_random_position, show_map, rectangles_num, rectangles_max_size,
-                 erosion_proba, cross_gap, boxes_thickness, qlearning_params, extractor_maps):
+    def __init__(self, width: int, height: int, guides_mode: str, map_type: str, evacuees_num: int, guides_num: int,
+                 ghost_agents: bool,
+                 evacuees_share_information: bool, guides_random_position: bool, show_map: bool, rectangles_num: int,
+                 rectangles_max_size: int,
+                 erosion_proba: float, cross_gap: int, boxes_thickness: int, qlearning_params: Dict,
+                 extractor_maps: Dict):
 
         super().__init__()
 
@@ -153,10 +156,6 @@ class EvacuationModel(Model):
 
         if self.verbose:
             print([self.schedule.time, self.schedule.get_breed_count(Evacuee)])
-
-    # def on_remove(self, state):
-    #     for agent in self.schedule.get_breed_agents(GuideQLearning):
-    #         self.remove_agent(agent, state)
 
     def move_agent(self, agent: StateAgent, action: str):
         pos = self.grid.action_to_position(agent.pos, action)
@@ -352,10 +351,6 @@ class EvacuationModel(Model):
 
                 guide = GuideQLearning(uid=self.next_id(), pos=pos, random_seed=self.random, epsilon=epsilon,
                                        gamma=gamma, alpha=alpha, weights=qlearning_weights)
-
-            else:
-                guide = GuideABT(uid=self.next_id(), pos=pos, random_seed=self.random, mode=self.guides_mode,
-                                 args=vars(self))
 
             self.grid.place_agent(guide, pos)
             self.schedule.add(guide)

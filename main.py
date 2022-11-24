@@ -9,7 +9,8 @@ from agents.agents import Evacuee, GuideAgent, Exit, Obstacle, MapInfo
 from simulation.model import EvacuationModel
 
 
-def agents_portrayal(agent):
+def agents_portrayal(agent):  # Describes look of every agent
+
     if agent is None:
         return
 
@@ -57,13 +58,13 @@ def agents_portrayal(agent):
     return portrayal
 
 
-HEIGHT = WIDTH = 100
-
+# Basic parameters of gui
+HEIGHT = WIDTH = 1050
 canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 950, 550)
-# canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1200, 1200)
 chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 
-model_params = {
+model_params = {  # Parameters of model, wrapped into gui objects
+
     "width": WIDTH,
     "height": HEIGHT,
 
@@ -98,7 +99,8 @@ model_params = {
     "extractor_maps": None,
 }
 if __name__ == '__main__':
-    if os.path.exists("output/weights_visited.txt"):
+
+    if os.path.exists("output/weights_visited.txt"):  # Load weights for Q Learning Agent if they exist
         with open("output/weights_visited.txt", "r") as f:
             model_params['qlearning_params']['weights'] = dict(json.load(f))
 

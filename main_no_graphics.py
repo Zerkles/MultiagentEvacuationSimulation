@@ -9,7 +9,8 @@ from simulation.model import EvacuationModel, get_feature_extractor_maps
 
 HEIGHT = WIDTH = 100
 
-model_params = {
+model_params = {  # Parameters of model
+
     "width": WIDTH,
     "height": HEIGHT,
 
@@ -36,12 +37,14 @@ model_params = {
 }
 
 if __name__ == '__main__':
+    # Basic start parameters
     qlearning_params = model_params['qlearning_params']
 
     n_games = 2000
     epsilon_min = 0.2
     epsilon_diff = (qlearning_params['epsilon'] - epsilon_min) / n_games
 
+    # Training loop
     for i in range(n_games):
         model = EvacuationModel(**model_params)
         model.run_model()
@@ -52,10 +55,10 @@ if __name__ == '__main__':
         qlearning_params = model.qlearning_params
         model_params["extractor_maps"] = FeatureExtractor.maps
 
-        if qlearning_params['epsilon'] >= epsilon_min:
+        if qlearning_params['epsilon'] >= epsilon_min:  # Epsilon decrease every new simulation
             qlearning_params['epsilon'] -= epsilon_diff
 
         model_params['qlearning_params'] = qlearning_params
 
-    with open(f"output/weights.txt", "w") as f:
+    with open(f"output/weights.txt", "w") as f:  # Save results to file
         f.write(json.dumps(qlearning_params['weights']))

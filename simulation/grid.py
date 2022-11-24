@@ -1,7 +1,7 @@
 from collections import defaultdict
 from copy import deepcopy
 from itertools import product
-from typing import Tuple, Set, Dict
+from typing import Tuple, Set, Dict, List
 
 import numpy as np
 from mesa.space import MultiGrid
@@ -18,13 +18,7 @@ class EvacuationGrid(MultiGrid):
         super().__init__(width, height, torus)
         self.positions_by_breed = defaultdict(lambda: set())
 
-    # def __deepcopy__(self, memodict={}):
-    #     new_instance = EvacuationGrid(self.width, self.height, self.torus)
-    #     new_instance.positions_by_breed = deepcopy(self.positions_by_breed)
-    #     new_instance.grid = self.grid
-    #     return new_instance
-
-    def get_legal_positions(self, pos, ghost_agents) -> Set[Tuple[int, int]]:
+    def get_legal_positions(self, pos: Tuple[int, int], ghost_agents: bool) -> Set[Tuple[int, int]]:
         legal_positions = set(self.get_neighborhood(pos, True, include_center=False, radius=1))
 
         legal_positions -= self.positions_by_breed[Obstacle]
@@ -34,7 +28,7 @@ class EvacuationGrid(MultiGrid):
         # legal_positions.add(pos)
         return legal_positions
 
-    def get_legal_actions_with_positions(self, pos, ghost_agents) -> Dict[str, Tuple[int, int]]:
+    def get_legal_actions_with_positions(self, pos: Tuple[int, int], ghost_agents: bool) -> Dict[str, Tuple[int, int]]:
         x, y = pos
         all_actions = dict()
         for k, (x_mod, y_mod) in EvacuationGrid.action_position_map.items():
@@ -49,12 +43,11 @@ class EvacuationGrid(MultiGrid):
 
         return legal_actions
 
-    def get_legal_actions(self, pos, ghost_agents):
+    def get_legal_actions(self, pos: Tuple[int, int], ghost_agents: bool) -> List[str]:
         return list(self.get_legal_actions_with_positions(pos, ghost_agents).keys())
 
-
     @staticmethod
-    def area_positions_from_points(pos1, pos2):
+    def area_positions_from_points(pos1: Tuple[int, int], pos2: Tuple[int, int]) -> List[Tuple[int, int]]:
         x1, y1 = pos1
         x2, y2 = pos2
 
@@ -63,12 +56,13 @@ class EvacuationGrid(MultiGrid):
 
         return list(product(range(xs[0], xs[1] + 1), range(ys[0], ys[1] + 1)))
 
-    def action_to_position(self, pos, action):
+    def action_to_position(self, pos: Tuple[int, int], action: str) -> Tuple[int, int]:
         x, y = pos
         x_mod, y_mod = self.action_position_map[action]
         return x + x_mod, y + y_mod
 
-    def generate_square_rounded_map(self, start_position, exit_positions):
+    def generate_square_rounded_map(self, start_position: Tuple[int, int],
+                                    exit_positions: List[Tuple[int, int]]) -> np.array:
         area_map = np.empty((self.width, self.height), int)
         unmeasured_positions = set(
             EvacuationGrid.area_positions_from_points((0, 0), (self.width - 1, self.height - 1))) - \
@@ -98,8 +92,8 @@ class EvacuationGrid(MultiGrid):
 
             distance += 1
 
-            # anti-stuck, helps in situation when some positions are unreachable
-            if av_pos_len == len(unmeasured_positions):
+            if av_pos_len == len(
+                    unmeasured_positions):  # anti-stuck, helps in situation when some positions are unreachable
                 unreachable_positions = unmeasured_positions
                 break
             else:
