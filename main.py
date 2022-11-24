@@ -1,3 +1,6 @@
+import json
+import os
+
 from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.modules import CanvasGrid, ChartModule
 from mesa.visualization.UserParam import Slider, Checkbox, Choice, StaticText
@@ -57,7 +60,7 @@ def agents_portrayal(agent):
 HEIGHT = WIDTH = 100
 
 canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 950, 550)
-# canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1500, 1500)
+# canvas_element = CanvasGrid(agents_portrayal, WIDTH, HEIGHT, 1200, 1200)
 chart_element = ChartModule([{"Label": "Evacuees", "Color": "#AA0000"}])
 
 model_params = {
@@ -69,13 +72,13 @@ model_params = {
     "show_map": Checkbox("Show distance for each field", False),
 
     "Guides Info": StaticText("Guides settings:"),
+    "guides_random_position": Checkbox("Guides start from random position", False),
     "guides_num": Slider("Number of Guides", 2, 1, 4),
     "guides_mode": Choice("Guides action mode", "Q Learning", ["A", "B", "None", "Q Learning"]),
-    "guides_random_position": Checkbox("Guides start from random position", False),
 
     "Evacuees Info": StaticText("Evacuees settings:"),
-    "evacuees_num": Slider("Number of Evacuees", 500, 1, 2000),
     "evacuees_share_information": Checkbox("Evacuees share exit area information", False),
+    "evacuees_num": Slider("Number of Evacuees", 500, 1, 2000),
 
     "Map Info": StaticText("Map settings:"),
     "map_type": Choice("Map type", 'default', ["default", "cross", "boxes", 'random_rectangles']),
@@ -91,10 +94,15 @@ model_params = {
     "rectangles_max_size": Slider("Maximal length of one side", 15, 1, 50),
     "erosion_proba": Slider("Probability for each position to disappear", 0.5, 0.0, 1.0, 0.1),
 
-    "qlearning_params": {'epsilon': 0.5, 'gamma': 0.8, 'alpha': 0.0, 'weights': None}
+    "qlearning_params": {'epsilon': 0.0, 'gamma': 0.8, 'alpha': 0.0, 'weights': None},
+    "extractor_maps": None,
 }
+if __name__ == '__main__':
+    if os.path.exists("output/weights_visited.txt"):
+        with open("output/weights_visited.txt", "r") as f:
+            model_params['qlearning_params']['weights'] = dict(json.load(f))
 
-server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
-                       model_params)
-server.port = 8521
-server.launch()
+    server = ModularServer(EvacuationModel, [canvas_element, chart_element], "Multiagent Evacuation Simulation",
+                           model_params)
+    server.port = 8521
+    server.launch()

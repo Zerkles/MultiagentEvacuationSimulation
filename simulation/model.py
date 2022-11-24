@@ -1,10 +1,13 @@
 import json
+import math
 
 import os
+import threading
 
 import time
 from collections import defaultdict
 from copy import deepcopy
+from multiprocessing import Process
 from statistics import median
 from typing import Dict
 
@@ -16,6 +19,7 @@ from agents.agents import Obstacle, Exit, Sensor, MapInfo, StateAgent, GuideAgen
 from agents.agents_guides import GuideABT, GuideQLearning
 import random
 
+from agents.feature_extractor import FeatureExtractor, get_feature_extractor_maps
 from simulation.grid import EvacuationGrid
 from simulation.schedule import EvacuationScheduler
 from simulation.simulation_state import SimulationState
@@ -30,7 +34,7 @@ class EvacuationModel(Model):
 
     def __init__(self, width, height, guides_mode, map_type, evacuees_num, guides_num, ghost_agents,
                  evacuees_share_information, guides_random_position, show_map, rectangles_num, rectangles_max_size,
-                 erosion_proba, cross_gap, boxes_thickness, qlearning_params):
+                 erosion_proba, cross_gap, boxes_thickness, qlearning_params, extractor_maps):
 
         super().__init__()
 
@@ -75,7 +79,8 @@ class EvacuationModel(Model):
         available_positions = EvacuationGrid.area_positions_from_points((0, 0), (self.width - 1, self.height - 1))
 
         # EXITS
-        exits_areas_corners = [((0, 0), (25, 0)), ((75, 99), (99, 99))]
+        exit_len = 25
+        exits_areas_corners = [((0, 0), (exit_len, 0)), ((width - 1 - exit_len, height - 1), (width - 1, height - 1))]
         exits_positions = self.init_exits(available_positions, exits_areas_corners)
         self.grid.positions_by_breed[Exit] = exits_positions
 
@@ -103,6 +108,13 @@ class EvacuationModel(Model):
         evacuees_positions = self.init_evacuees(evacuees_num, available_positions)
         self.grid.positions_by_breed[Evacuee] = evacuees_positions
 
+        # FeatureExtractor INIT
+        FeatureExtractor.unvisited_positions = set(
+            EvacuationGrid.area_positions_from_points((0, 0), (width - 1, height - 1)))
+
+        if extractor_maps is None:
+            FeatureExtractor.maps, FeatureExtractor.maps_lists = get_feature_extractor_maps(self.grid)
+
         self.datacollector.collect(self)
 
     def run_model(self):
@@ -126,19 +138,15 @@ class EvacuationModel(Model):
 
     def step(self):
         self.schedule.step()
+        state = self.get_simulation_state()
 
         # Terminal conditions
         for guide in self.schedule.get_breed_agents(GuideQLearning):
-            if guide.score <= 0:
-                self.remove_agent(guide, self.get_simulation_state())
+            if guide.lifepoints < 0:
+                self.remove_agent(guide, state)
 
-        if self.schedule.get_breed_count(Evacuee) == 0 and self.schedule.get_guides_count() == 0:
+        if self.schedule.get_guides_count() == 0:
             self.running = False
-            self.on_remove(self.get_simulation_state())
-
-        elif self.schedule.get_breed_count(Evacuee) != 0 and self.schedule.get_guides_count() == 0:
-            self.running = False
-            self.on_remove(self.get_simulation_state())
 
         # Collect data
         self.datacollector.collect(self)
@@ -146,10 +154,9 @@ class EvacuationModel(Model):
         if self.verbose:
             print([self.schedule.time, self.schedule.get_breed_count(Evacuee)])
 
-    def on_remove(self, state):
-        print(self.schedule.steps)
-        for agent in self.schedule.get_breed_agents(GuideQLearning):
-            self.remove_agent(agent, state)
+    # def on_remove(self, state):
+    #     for agent in self.schedule.get_breed_agents(GuideQLearning):
+    #         self.remove_agent(agent, state)
 
     def move_agent(self, agent: StateAgent, action: str):
         pos = self.grid.action_to_position(agent.pos, action)
@@ -160,11 +167,11 @@ class EvacuationModel(Model):
         self.grid.move_agent(agent, pos)
 
     def remove_agent(self, agent: StateAgent, state):
-        self.grid.positions_by_breed[type(agent)].remove(agent.pos)
+        self.grid.positions_by_breed[type(agent)].discard(agent.pos)
 
         if type(agent) == GuideQLearning:
-            agent.on_remove(state)
-            self.add_guide_experience(vars(agent))
+            experience = agent.on_remove(state)
+            self.add_guide_experience(experience)
 
         self.grid.remove_agent(agent)
         self.schedule.remove(agent)
@@ -184,9 +191,25 @@ class EvacuationModel(Model):
     def add_guide_experience(self, guide_vars: Dict):
         if self.qlearning_params is None:
             self.qlearning_params = guide_vars
-        # else:
-        #     for k, v in vars:
-        #         self.qlearning_params[k] = (self.qlearning_params[k] + vars[k]) / 2
+        else:
+            for k, v in guide_vars['weights'].items():
+                self.qlearning_params['weights'][k] = (self.qlearning_params['weights'][k] + guide_vars['weights'][
+                    k]) / 2
+
+    def get_simulation_state(self, deep=False):
+        params_keys = ['width', 'height', 'guides_mode', 'map_type', 'evacuees_num', 'ghost_agents',
+                       'evacuees_share_information', 'max_route_len']
+        params = {k: v for k, v in vars(self).items() if k in params_keys}
+        exit_maps = self.exit_maps
+
+        if deep:
+            grid = deepcopy(self.grid)
+            schedule = deepcopy(self.schedule)
+        else:
+            grid = self.grid
+            schedule = self.schedule
+
+        return SimulationState(grid, schedule, exit_maps, params)
 
     def init_obstacles(self, available_positions, areas_centers, fixed_positions, map_params):
         obstacles_corners = []
@@ -228,7 +251,7 @@ class EvacuationModel(Model):
                 y_random = random.choice(rectangle_max_size)
                 max_y, min_y = center[1] + y_random, center[1] - y_random
 
-                box_points = set(self.area_positions_from_points((min_x, min_y), (max_x, max_y)))
+                box_points = set(EvacuationGrid.area_positions_from_points((min_x, min_y), (max_x, max_y)))
                 rectangle_points = set()
                 for x, y in box_points:
                     if x == max_x or x == min_x or y == max_y or y == min_y:
@@ -244,7 +267,7 @@ class EvacuationModel(Model):
 
         if self.map_type == 'cross' or self.map_type == 'boxes':
             for i, (a, b) in enumerate(obstacles_corners):
-                area_positions = self.area_positions_from_points(a, b)
+                area_positions = EvacuationGrid.area_positions_from_points(a, b)
                 obstacles_positions.update(area_positions)
 
         for pos in obstacles_positions:
@@ -285,8 +308,8 @@ class EvacuationModel(Model):
         # Map test
         if show_map:
             test_map = list(exits_maps.values())[1]
-            for x in range(100):
-                for y in range(100):
+            for x in range(self.width):
+                for y in range(self.height):
                     map_obj = MapInfo(uid=self.next_id(), pos=(x, y), random_seed=self.random,
                                       value=test_map[x][y], color="transparent")
                     self.grid.place_agent(map_obj, (x, y))
@@ -323,10 +346,6 @@ class EvacuationModel(Model):
                 if q_learning_params['weights'] is not None:
                     qlearning_weights = q_learning_params['weights']
 
-                elif os.path.exists("output/weights.txt"):
-                    with open("output/weights.txt", "r") as f:
-                        qlearning_weights.update(dict(json.load(f)))
-
                 epsilon = q_learning_params['epsilon']
                 gamma = q_learning_params['gamma']  # aka discount factor
                 alpha = q_learning_params['alpha']
@@ -361,18 +380,3 @@ class EvacuationModel(Model):
             available_positions.remove(pos)
 
         return evacuees_positions
-
-    def get_simulation_state(self, deep=False):
-        params_keys = ['width', 'height', 'guides_mode', 'map_type', 'evacuees_num', 'ghost_agents',
-                       'evacuees_share_information', 'max_route_len']
-        params = {k: v for k, v in vars(self).items() if k in params_keys}
-        exit_maps = self.exit_maps
-
-        if deep:
-            grid = deepcopy(self.grid)
-            schedule = deepcopy(self.schedule)
-        else:
-            grid = self.grid
-            schedule = self.schedule
-
-        return SimulationState(grid, schedule, exit_maps, params)

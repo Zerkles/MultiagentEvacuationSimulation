@@ -47,7 +47,6 @@ class EvacuationScheduler(BaseScheduler):
             agents_at_exit.remove(exit_obj)
 
             for agent in agents_at_exit:
-                agent.on_remove(state_ref)
                 self.model.remove_agent(agent, state_ref)
 
         state_ref = self.model.get_simulation_state(deep=False)
@@ -79,17 +78,20 @@ class EvacuationScheduler(BaseScheduler):
         state_ref = self.model.get_simulation_state(deep=False)
         # Activate Guides
         for guide in self.get_breed_agents(GuideQLearning):
-            previous_deep_state = self.model.get_simulation_state(deep=True)
+            # previous_deep_state = self.model.get_simulation_state(deep=True)
 
             action = guide.step(state_ref)
+
+            feats = guide.extractor.get_features(state_ref,action)
+            feats_next = guide.extractor.get_features(state_ref, action)
 
             self.model.move_agent(guide, action)
             self.model.broadcast_exit_info(guide, guide.get_exit(), True)
 
             state_ref = self.model.get_simulation_state()
 
-            reward = guide.extractor.get_reward(previous_deep_state, guide.last_action, state_ref)
-            guide.update(previous_deep_state, guide.last_action, state_ref, reward)
+            reward = guide.get_reward(feats, feats_next)
+            guide.update(feats, state_ref, reward)
 
     def step_breed(self, breed: Type, state: SimulationState, index_order: List[int] = None):
         if index_order is None:

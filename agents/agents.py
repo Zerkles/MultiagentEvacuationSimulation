@@ -97,6 +97,10 @@ class Evacuee(StateAgent):
         ghost_agents = state.ghost_agents
 
         legal_actions_with_positions = state.grid.get_legal_actions_with_positions(pos, ghost_agents)
+
+        if legal_actions_with_positions == {}:
+            return "MM"
+
         legal_actions_with_distances = self.get_distance_for_positions(state, legal_actions_with_positions)
 
         best_action = min(legal_actions_with_distances, key=legal_actions_with_distances.get)
