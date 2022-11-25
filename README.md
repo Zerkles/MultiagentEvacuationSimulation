@@ -82,34 +82,3 @@ These files are used to start simulation.
       saved to file.
 
 Model params dictionary must contain the same keys for both simulation types.
-
-## 3.) Classes by modules
-### 3.1) "simulation" module
-EvacuationModel
-
-SimulationState
-
-EvacuationGrid
-
-EvacuationScheduler
-### 3.2.1) "agents" module, agents.py file
-#### StateAgent()
-
-#### Obstacle(StateAgent)
-
-#### Exit(StateAgent)
-
-#### Sensor(StateAgent)
-
-#### MapInfo(StateAgent)
-
-#### GuideAgent(StateAgent)
-
-#### Evacuee(StateAgent)
-
-### 3.2.2) "agents" module, agents.py file
-#### GuideABT(GuideAgent)
-
-#### GuideQLearning(GuideAgent)
-
-#### FeatureExtractor()
